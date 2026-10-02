@@ -1,0 +1,47 @@
+# Example declarative dashboard spec (agentic_bi)
+# Full lifecycle: develop / test / deploy / control / support.
+# Load it with agentic_bi.spec.load() and translate it via spec_to_board().
+dashboard:
+  name: "Overview board (example)"
+  table: fact_table
+  measure_table: kpi_measures
+  pages:
+    - name: p1
+      title: "Main"
+      header: "Dashboard · Overview"
+      filters: [category, metric]
+      elements:
+        - type: kpi
+          field: {kind: measure, property: metric_a, display: "Metric A"}
+        - type: chart
+          visual_type: lineChart
+          axis:  {kind: column,  property: period_start, display: "Period"}
+          value: {kind: measure, property: metric_b,    display: "Metric B"}
+        - type: table
+          fields:
+            - {kind: column,  property: metric, display: "Metric"}
+            - {kind: measure, property: metric_a,    display: "Metric A"}
+
+# ── Testing: threshold overrides from the thresholds.py catalog ──
+quality:
+  thresholds:
+    quality.max_layout_problems: 0      # hard gate: no layout problems allowed
+
+# ── Deploy: git-deploy via git-deploy ──
+deploy:
+  pbirs_sync_config: "git-deploy.yaml"
+  target_folder: "/Target/Dev"
+  branch: "dev"
+  dry_run: true
+
+# ── Control: verify the published artifact ──
+control:
+  verify: true
+  expected:
+    folder: "/Target/Dev"
+
+# ── Support: agents (enable/disable/project ones) ──
+support:
+  enable_ids: [agent.builder, agent.tester, agent.deployer, agent.watchdog, agent.supporter]
+  disable_ids: []
+  agents: []

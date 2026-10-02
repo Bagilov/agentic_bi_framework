@@ -1,0 +1,99 @@
+# Brand/design-system style - document audit configuration
+#
+# A single config for checking presentations/documents/spreadsheets against the
+# design tokens. Loaded by the `agentic_bi.brand_audit` module.
+#
+# Rule source: your brand style guide (visual identity guide), if any.
+# Machine-readable base spec (defaults): agentic_bi/brand.py
+#
+# Principle: anything not set here is taken from `brand.py`. Here - only the
+# overrides and tolerances of a particular project/check.
+#
+# NOTE: the palette/fonts below are neutral placeholders - replace them with
+# your own design tokens.
+
+# ── Metadata ──────────────────────────────────────────────
+meta:
+  version: "1.0"
+  source: ""
+  description: "Brand-compliance audit of documents"
+
+# ── Colors ────────────────────────────────────────────────
+# hex is required; name/role for a readable report. `mandatory` requires the
+# color to be present in the document (the primary accent is mandatory).
+# `ref` is an optional external reference (e.g. a swatch code).
+colors:
+  primary:
+    - { name: "Accent Red",   hex: "#D32F2F", mandatory: true }
+    - { name: "Black",        hex: "#000000" }
+    - { name: "Grey Dark",    hex: "#4A4A4A" }
+    - { name: "Grey Light",   hex: "#D9D9D9" }
+  additional:
+    - { name: "Violet",       hex: "#6020C0", approx: true }
+    - { name: "Silver",       hex: "#A7A9AB", approx: true }
+    - { name: "Teal",         hex: "#00E0E0", approx: true }
+  # Neutral service colors allowed outside the palette (backgrounds, lines, UI).
+  # Achromatic (R==G==B) are always allowed; here - only NON-grey ones.
+  allow_extra: []
+  # Maximum ΔRGB distance at which a color is considered "almost brand"
+  # (anti-aliasing, export, themes). Above - recorded as a non-compliance.
+  tolerance_rgb: 12
+
+# ── Fonts ─────────────────────────────────────────────────
+fonts:
+  allowed: ["Brand Sans", "Brand Sans Text"]
+  # Allowed system substitutes (not brand fonts, but acceptable in UI/Desktop).
+  fallback: ["Segoe UI", "Arial", "Helvetica", "Calibri", "Lato", "Roboto", "DIN", "Open Sans"]
+  # Allowed weights. Empty disables the weight check.
+  weights: ["Thin", "Light", "Regular", "Medium", "Bold", "Black"]
+  # Check the font size for "non-designer" values (not a multiple of 2pt).
+  check_size_step: 2
+
+# ── Background ────────────────────────────────────────────
+background:
+  # Preferred backgrounds (white is ideal).
+  preferred: ["#FFFFFF"]
+  # Other allowed backgrounds (palette neutrals).
+  allowed: ["#000000", "#4A4A4A", "#D9D9D9", "#F0F0F0", "#ECECEC"]
+  # Minimum text-to-background contrast (WCAG AA), otherwise warning.
+  min_contrast: 4.5
+
+# ── Rules (brand-book thresholds) ─────────────────────────
+rules:
+  accent_mandatory: true          # the primary accent is mandatory
+  primary_color_min: 2         # min 2 primary-range colors when extending the palette
+  base_elements_min: 2         # min 2 of 3 base elements
+  check_contrast: true         # check text/background contrast
+  check_fonts: true            # check families and weight
+  check_colors: true           # check fill/text/line colors
+
+# ── Severity levels per rule (severity override) ──────────
+# Available: error | warning | info | off
+severity:
+  BRAND-ACCENT-MANDATORY: error
+  BRAND-PALETTE-MEMBERSHIP: warning
+  BRAND-PRIMARY-COLORS-MIN: warning
+  FONT-FAMILY-BRAND: warning
+  FONT-WEIGHT-ALLOWED: warning
+  FONT-SIZE-STEP: info
+  BG-ALLOWED: warning
+  BG-CONTRAST: warning
+  ELEM-BASE-2OF3: info
+
+# ── What to check in the document ─────────────────────────
+audit:
+  check_text_color: true       # text color (run.font.color, RGB + theme)
+  check_fill_color: true       # shape fill color
+  check_line_color: true       # line/outline color
+  check_background: true       # slide/page background
+  check_font_size: false       # check the font-size step (off by default)
+  foundation_present: false    # assume the "foundation" element is present (for 2-of-3)
+  resolve_theme_colors: true   # resolve theme (scheme) colors to HEX
+  contrast_skip_brand: true    # do not flag contrast for brand colors (sanctioned)
+  ignore_layout_placeholders: true   # do not check what is inherited from the master layout
+  max_findings: 200            # output limit (0 = no limit)
+  # Ignored placeholder families (a common export substitution).
+  ignore_fonts: ["+mn-lt", "+mj-lt", "+mn-ea", "+mj-ea", "ThemeFont"]
+  # Tolerance for the mandatory primary accent per RGB channel: dashboards often use
+  # #D0302A/#D3212A instead of the canonical #D32F2F.
+  accent_tolerance: 20

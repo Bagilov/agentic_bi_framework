@@ -1,0 +1,9 @@
+id,region,product,amount,qty,active,sale_date
+1,Moscow,Alpha,10500.50,3,true,2026-01-15
+2,SPb,Beta,8200.00,1,false,2026-02-20
+3,Moscow,Gamma,15300.75,7,true,2026-03-05
+4,Kazan,Alpha,4100.25,2,true,2026-03-18
+5,SPb,Gamma,22600.00,5,false,2026-04-11
+6,Sochi,Beta,9750.00,4,true,2026-04-28
+7,Moscow,Beta,11800.50,6,true,2026-05-14
+8,Kazan,Gamma,6400.00,1,false,2026-05-30

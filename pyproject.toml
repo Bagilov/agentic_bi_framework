@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-bi-framework"
+version = "0.0.1b1"
+description = "Self-contained framework for agentic Power BI (.pbix) authoring, validation, brand auditing and report-server operations."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Bagilov" }]
+keywords = ["powerbi", "pbix", "dax", "lineage", "brand-audit", "report-server", "agentic"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+# Core runtime is stdlib-only. Optional integrations are grouped by concern.
+dependencies = []
+
+[project.optional-dependencies]
+# YAML/JSON declarative specs and brand config.
+spec = ["PyYAML>=6.0"]
+# Read-back / deep DAX-M analysis of an existing .pbix model.
+readback = ["pbixray>=0.4", "pandas>=2.0"]
+# Report Server (REST) publish + inspection.
+server = ["requests>=2.31", "requests-negotiate-sspi>=0.4", "urllib3>=2.0"]
+# Native Windows negotiation (SSPI/SPNEGO) for on-prem Report Server.
+server-native = ["spnego>=0.4"]
+# Brand auditing of .pptx documents.
+brand = ["python-pptx>=0.6.23", "lxml>=4.9"]
+# Parity export (Excel/Parquet) of lineage tables.
+tables = ["pandas>=2.0", "pyarrow>=14.0"]
+# Everything.
+all = [
+  "PyYAML>=6.0",
+  "pbixray>=0.4",
+  "pandas>=2.0",
+  "pyarrow>=14.0",
+  "requests>=2.31",
+  "requests-negotiate-sspi>=0.4",
+  "urllib3>=2.0",
+  "spnego>=0.4",
+  "python-pptx>=0.6.23",
+  "lxml>=4.9",
+]
+
+[project.scripts]
+agentic-bi-engine = "agentic_bi.engine_cli:main"
+agentic-bi-brand-audit = "agentic_bi.brand_audit:main"
+agentic-bi-lineage = "agentic_bi.lineage.pbi_lineage:main"
+agentic-bi-antipatterns = "agentic_bi.antipatterns.pbi_antipatterns:main"
+agentic-bi-server = "agentic_bi.reportserver.diagnostics:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agentic_bi = ["brand_config.yaml", "_engine_build.ps1"]

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated artifacts
+output_files/
+*.pbix
+!examples/*.pbix
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
