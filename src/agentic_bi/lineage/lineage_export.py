@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from agentic_bi.lineage.lineage_brand import (
     visual_brand_metrics,
 )
 from agentic_bi.lineage.lineage_origins import origin_json_block
-from agentic_bi.lineage.lineage_types import _brand_level_ru
+from agentic_bi.lineage.lineage_types import Source, _brand_level_ru
 
 logger = logging.getLogger(__name__)
 

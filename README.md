@@ -16,6 +16,8 @@ is passed through configuration or CLI flags.
 - **[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)** — the module/API map and
   recipes.
 - **[docs/BRAND_AUDIT.md](docs/BRAND_AUDIT.md)** — brand-compliance auditing.
+- **[docs/DEVELOPMENT_MACOS.md](docs/DEVELOPMENT_MACOS.md)** — develop and test
+  on macOS with a Windows VM in UTM.
 
 ## Layout
 
@@ -25,7 +27,8 @@ agentic_bi_framework/
 ├── docs/
 │   ├── FRAMEWORK.md           # the framework: concepts, lifecycle, methods
 │   ├── IMPLEMENTATION.md      # reference implementation details / API map
-│   └── BRAND_AUDIT.md         # brand compliance auditing
+│   ├── BRAND_AUDIT.md         # brand compliance auditing
+│   └── DEVELOPMENT_MACOS.md   # macOS + UTM dev setup and testing
 ├── examples/
 │   ├── board_declare.yaml     # declarative multi-page board spec
 │   ├── engine_custom_visuals.py
@@ -43,8 +46,14 @@ agentic_bi_framework/
     ├── publish.py / automate.py
     ├── lineage/               # vendored: .pbix lineage extraction
     ├── antipatterns/          # vendored: DAX/M antipattern analysis
-    └── reportserver/          # vendored: generic Report Server access
+    ├── reportserver/          # vendored: generic Report Server access
+    └── report/                # multi-page PDF lineage report (diagram+matrix+brand)
 ```
+
+The `report` subpackage turns a `PbiLineage.to_json()` dict into a printable
+multi-page PDF: PlantUML diagram (tiled across pages), brand-book scorecard, the
+flat level matrix and the list of brand deviations. It needs the `report` extra.
+See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md#pdf-lineage-report).
 
 ## Quick start
 

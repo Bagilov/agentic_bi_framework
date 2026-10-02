@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 _THEME = "CY24SU05"
 
 # QOM AggregationFunction codes
-_AGG_FUNC = {"sum": 0, "avg": 1, "average": 1, "min": 2, "max": 3, "count": 4,
+_AGG_FUNC = {"sum": 0, "avg": 1, "average": 1, "count": 2, "min": 3, "max": 4,
              "count_nonnull": 5, "median": 6, "stddev": 7, "var": 8}
 _AGG_LABEL = {"sum": "Sum", "avg": "Avg", "average": "Avg", "min": "Min",
               "max": "Max", "count": "Count", "count_nonnull": "Count",
@@ -155,6 +155,87 @@ def _auto_visuals(table: str, cols: list[dict]) -> list[Visual]:
         visuals.append(Visual("pie", table, axis=cats[0], value=nums[0],
                               agg="sum", title=f"{nums[0]} share by {cats[0]}"))
     return visuals
+
+
+def _classify_columns(columns: list) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Split columns (dicts or names) into (names, numeric, categorical, dates)."""
+    names: list[str] = []
+    nums: list[str] = []
+    cats: list[str] = []
+    dates: list[str] = []
+    for c in columns:
+        if isinstance(c, dict):
+            n, t = c.get("name"), c.get("type")
+        else:
+            n, t = c, None
+        if not n:
+            continue
+        names.append(n)
+        if t in ("int64", "double"):
+            nums.append(n)
+        elif t == "date":
+            dates.append(n)
+        elif t == "string":
+            cats.append(n)
+    return names, nums, cats, dates
+
+
+def gallery_visuals(table: str, columns: list) -> list[Visual]:
+    """One example of every supported visual kind, laid out as a gallery page.
+
+    Column roles are inferred: numeric -> value, string -> category, date ->
+    axis/trend. `columns` may be spec column dicts ({name,type}) or plain names.
+    """
+    names, nums, cats, dates = _classify_columns(columns)
+    num = nums or names
+    cat = cats or names
+    date = dates or cat
+    if not num:
+        raise ValueError("gallery_visuals: table has no numeric column for values")
+    v1 = num[0]
+    v2 = num[1] if len(num) > 1 else num[0]
+    c1 = cat[0] if cat else v1
+    d1 = date[0] if date else c1
+
+    W, H, GAP, COLS = 600, 320, 40, 4
+    specs = [
+        Visual("table", table, columns=names,
+               title="tableEx — all columns"),
+        Visual("matrix", table, columns=cat[:2] or [c1], value=v1, agg="sum",
+               title="pivotTable — rows + value"),
+        Visual("card", table, value=v1, agg="sum", title="card — Sum"),
+        Visual("card", table, value=v1, agg="avg", title="card — Avg"),
+        Visual("card", table, value=v1, agg="max", title="card — Max"),
+        Visual("card", table, value=v1, agg="count", title="card — Count"),
+        Visual("slicer", table, axis=c1, title=f"slicer — {c1}"),
+        Visual("column", table, axis=c1, value=v1, title="columnChart"),
+        Visual("bar", table, axis=c1, value=v1, title="barChart"),
+        Visual("line", table, axis=d1, value=v1, title="lineChart"),
+        Visual("area", table, axis=d1, value=v1, title="areaChart"),
+        Visual("pie", table, axis=c1, value=v1, title="pieChart"),
+        Visual("donut", table, axis=c1, value=v2, title="donutChart"),
+        Visual("treemap", table, axis=c1, value=v1, title="treemap"),
+        Visual("funnel", table, axis=c1, value=v2, title="funnel"),
+        Visual("waterfall", table, axis=c1, value=v1, title="waterfallChart"),
+        Visual("stackedColumn", table, axis=c1, value=v1,
+               title="stackedColumnChart"),
+        Visual("stackedBar", table, axis=c1, value=v1,
+               title="stackedBarChart"),
+        Visual("scatter", table, x=v1, y=v2, title="scatterChart"),
+        Visual("gauge", table, value=v1, title="gauge"),
+        Visual("kpi", table, value=v1, trend=d1, title="kpi"),
+    ]
+    for i, vis in enumerate(specs):
+        vis.pos = (20 + (i % COLS) * (W + GAP),
+                   20 + (i // COLS) * (H + GAP), W, H)
+    return specs
+
+
+def build_gallery(spec: dict, page_name: str = "Visual Gallery") -> bytes:
+    """Single-page gallery of every supported visual kind for the first table."""
+    table = spec["tables"][0]
+    return build_report([(page_name,
+                          gallery_visuals(table["name"], table["columns"]))])
 
 
 def build_layout_from_spec(spec: dict, visuals: list[Visual] | None = None,

@@ -9,6 +9,7 @@ from agentic_bi.skeleton_visuals import (
     _full_query,
     _query_item,
     _query_layout,
+    card_visual,
 )
 
 logger = logging.getLogger(__name__)

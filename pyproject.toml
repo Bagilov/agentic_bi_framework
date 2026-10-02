@@ -35,6 +35,8 @@ server-native = ["spnego>=0.4"]
 brand = ["python-pptx>=0.6.23", "lxml>=4.9"]
 # Parity export (Excel/Parquet) of lineage tables.
 tables = ["pandas>=2.0", "pyarrow>=14.0"]
+# Multi-page PDF lineage report (diagram + matrix + brand audit).
+report = ["reportlab>=4.0", "Pillow>=10.0", "pandas>=2.0", "openpyxl>=3.1"]
 # Everything.
 all = [
   "PyYAML>=6.0",
@@ -47,14 +49,19 @@ all = [
   "spnego>=0.4",
   "python-pptx>=0.6.23",
   "lxml>=4.9",
+  "reportlab>=4.0",
+  "Pillow>=10.0",
 ]
 
 [project.scripts]
 agentic-bi-engine = "agentic_bi.engine_cli:main"
+agentic-bi-test-build = "agentic_bi.test_build:main"
+agentic-bi-visual-check = "agentic_bi.visual_check:main"
 agentic-bi-brand-audit = "agentic_bi.brand_audit:main"
 agentic-bi-lineage = "agentic_bi.lineage.pbi_lineage:main"
 agentic-bi-antipatterns = "agentic_bi.antipatterns.pbi_antipatterns:main"
 agentic-bi-server = "agentic_bi.reportserver.diagnostics:main"
+agentic-bi-report = "agentic_bi.report.pdf_report:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

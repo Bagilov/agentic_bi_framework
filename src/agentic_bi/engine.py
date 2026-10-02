@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -44,12 +45,47 @@ import agentic_bi.engine_verify as engine_verify
 
 logger = logging.getLogger(__name__)
 
-# Default Desktop RS executable and workspace root (override via constructor).
-PBI_RS = os.environ.get(
-    "PBI_RS_DESKTOP",
-    r"C:\Program Files\Power BI Desktop RS\bin\PBIDesktop.exe")
-WS_ROOT = (Path.home() / "AppData" / "Local" / "Microsoft"
-           / "Power BI Desktop SSRS" / "AnalysisServicesWorkspaces")
+# Desktop executable and AS workspace root. Both prefer the RS build (the
+# framework's historical target) and fall back to the regular Desktop, and can
+# be pinned with PBI_RS_DESKTOP / PBI_RS_WS_ROOT.
+_DESKTOP_DIRS = ("Power BI Desktop RS", "Power BI Desktop")
+_WS_DIRS = ("Power BI Desktop SSRS", "Power BI Desktop")
+
+
+def _default_desktop() -> str:
+    env = os.environ.get("PBI_RS_DESKTOP")
+    if env:
+        return env
+    for name in _DESKTOP_DIRS:
+        exe = Path(r"C:\Program Files") / name / "bin" / "PBIDesktop.exe"
+        if exe.exists():
+            return str(exe)
+    return r"C:\Program Files\Power BI Desktop RS\bin\PBIDesktop.exe"
+
+
+def _ws_root() -> Path:
+    env = os.environ.get("PBI_RS_WS_ROOT")
+    if env:
+        return Path(env)
+    local = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    base = local / "Microsoft"
+    for name in _WS_DIRS:
+        cand = base / name / "AnalysisServicesWorkspaces"
+        if cand.exists():
+            return cand
+    return base / _WS_DIRS[0] / "AnalysisServicesWorkspaces"
+
+
+def _port_alive(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+PBI_RS = _default_desktop()
+WS_ROOT = _ws_root()
 DEFAULT_TEMPLATE = Path(os.environ.get("PBI_RS_TEMPLATE", "templates/template.pbix"))
 
 _DATE_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
@@ -105,16 +141,24 @@ class EnginePipeline:
         time.sleep(4)
 
     def _wait_port(self, timeout: int = 60) -> int:
+        root = _ws_root()
         t0 = time.time()
         while time.time() - t0 < timeout:
-            ws = sorted(WS_ROOT.glob("*"), key=lambda p: p.stat().st_mtime,
+            ws = sorted(root.glob("*"), key=lambda p: p.stat().st_mtime,
                         reverse=True)
-            if ws:
-                port_file = ws[0] / "Data" / "msmdsrv.port.txt"
-                if port_file.exists():
-                    return int(port_file.read_text().replace("\x00", "").strip())
+            for w in ws:
+                port_file = w / "Data" / "msmdsrv.port.txt"
+                if not port_file.exists():
+                    continue
+                try:
+                    port = int(port_file.read_text().replace("\x00", "").strip())
+                except ValueError:
+                    continue
+                # Skip stale workspaces whose port is no longer listening.
+                if _port_alive(port):
+                    return port
             time.sleep(1)
-        raise TimeoutError("engine port not found")
+        raise TimeoutError(f"engine port not found under {root}")
 
     def _run_engine_build(self, spec_path: Path, abf: Path) -> str:
         """Run `_engine_build.ps1` with one retry (the engine does not start at once)."""

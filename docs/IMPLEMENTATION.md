@@ -310,6 +310,12 @@ Main APIs:
 
 ## 11. Tests
 
+> Developing on macOS with a Windows VM in UTM? See
+> [DEVELOPMENT_MACOS.md](DEVELOPMENT_MACOS.md) for the VM setup, engine paths
+> and the test-build commands. Framework self-tests also ship as CLIs:
+> `agentic-bi-visual-check` (static layout validation) and
+> `agentic-bi-test-build` (build + validate + JSON report).
+
 ```bash
 cd agentic_bi_framework
 pytest tests/ -v
@@ -469,3 +475,55 @@ report-download permission is required.
 **`deploy-state.json` is not created (HTTP 400)**
 - A known `git-deploy` limitation (creating a JSON resource). Does not affect
   report publishing; the next deploy will be a full one.
+## 15. PDF lineage report (`report/`)
+
+Turns a `PbiLineage.to_json()` dict into a printable, multi-page PDF that
+replaces the old wiki-page hand-off: a PlantUML diagram, a brand-book scorecard,
+the flat level matrix and the list of brand deviations.
+
+Install the optional extra:
+
+```bash
+pip install -e ".[report]"        # reportlab + Pillow + pandas + openpyxl
+```
+
+CLI:
+
+```bash
+# .pbix or lineage.json -> multi-page PDF (A4 landscape by default)
+agentic-bi-report path/to/lineage.json -o lineage.pdf
+agentic-bi-report "dashboard.pbix" --page-size A3 --no-visuals --no-diagram
+```
+
+Programmatic:
+
+```python
+from agentic_bi.report import build_report, LineageTable, lineage_to_table
+
+rows = lineage_to_table(data)          # flat level matrix (list[dict])
+LineageTable(data).to_excel("matrix.xlsx")
+
+build_report(data, "lineage.pdf", plantuml=plantuml_source,
+             page_size="A4", orientation="landscape",
+             max_level=7, include_visuals=True)
+```
+
+Module map:
+
+| Module | Responsibility |
+|---|---|
+| `report/lineage_matrix.py` | `lineage_to_table`: JSON -> flat rows + `COLUMNS`/`LEVEL` |
+| `report/lineage_table.py` | `LineageTable`: pandas DataFrame + Excel export |
+| `report/plantuml_tools.py` | PlantUML validate/render (`PLANTUML_JAR`/`PLANTUML_JAR_DIR`) |
+| `report/pdf_diagram.py` | render the diagram and tile it across pages |
+| `report/pdf_tables.py` | scorecard, matrix table and brand-issue flowables |
+| `report/pdf_report.py` | `build_report` orchestration + CLI |
+
+Notes:
+
+- The diagram is skipped (with a message) when `plantuml.jar` or Pillow is
+  unavailable; the rest of the report is still produced.
+- A Unicode TTF font is auto-resolved for non-Latin dashboard text; override with
+  `REPORT_PDF_FONT` (or the `--font` flag) when auto-detection is not enough.
+- Page size/orientation are flags; the matrix paginates automatically and the
+  diagram tiles when it is taller than one page.

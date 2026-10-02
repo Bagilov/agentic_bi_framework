@@ -194,6 +194,11 @@ result = pipe.run(
 Full run: data → inferred model spec → AS engine `ImageSave` → clean container
 (scaffolding + our layout + DataModel) → verification → oracle.
 
+On macOS the engine runs in a Windows 11 ARM VM (UTM) with Power BI Desktop;
+layout authoring and validation run natively. See
+[docs/DEVELOPMENT_MACOS.md](DEVELOPMENT_MACOS.md) for the VM setup, engine
+paths and the test-build commands.
+
 ---
 
 ## 5. Working with agents

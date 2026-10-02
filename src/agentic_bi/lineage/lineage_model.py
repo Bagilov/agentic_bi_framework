@@ -1,11 +1,13 @@
 """Model extraction, report-layout parsing and data-source resolution mixin."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 import zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pbixray import LiveConnectionError, NoEmbeddedModelError, PBIXRay
 
@@ -18,6 +20,9 @@ from agentic_bi.lineage.lineage_types import (
     _split_table_col,
     _strip_agg,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
+    from agentic_bi.lineage.pbi_lineage import PbiLineage
 
 logger = logging.getLogger(__name__)
 

@@ -10,13 +10,24 @@ param(
   [Parameter(Mandatory=$true)][string]$Out
 )
 $ErrorActionPreference = 'Stop'
-# Desktop RS binary directory: override with the PBI_RS_BIN env var.
-$bin = if ($env:PBI_RS_BIN) { $env:PBI_RS_BIN } else { 'C:\Program Files\Microsoft Power BI Desktop RS\bin' }
+# Desktop binary directory: override with PBI_RS_BIN, else prefer the RS build
+# and fall back to the regular Desktop.
+$bin = if ($env:PBI_RS_BIN) { $env:PBI_RS_BIN } else {
+  $rsBin = 'C:\Program Files\Microsoft Power BI Desktop RS\bin'
+  if (Test-Path (Join-Path $rsBin 'Microsoft.PowerBI.Tabular.dll')) { $rsBin }
+  else { 'C:\Program Files\Microsoft Power BI Desktop\bin' }
+}
 [System.Reflection.Assembly]::LoadFrom((Join-Path $bin 'Microsoft.PowerBI.Amo.Core.dll')) | Out-Null
 $amo = [System.Reflection.Assembly]::LoadFrom((Join-Path $bin 'Microsoft.PowerBI.Amo.dll'))
 $tom = [System.Reflection.Assembly]::LoadFrom((Join-Path $bin 'Microsoft.PowerBI.Tabular.dll'))
 
-$wsRoot = "$env:LOCALAPPDATA\Microsoft\Power BI Desktop SSRS\AnalysisServicesWorkspaces"
+# AS workspace root: override with PBI_RS_WS_ROOT, else prefer the RS build and
+# fall back to the regular Desktop.
+$wsRoot = if ($env:PBI_RS_WS_ROOT) { $env:PBI_RS_WS_ROOT } else {
+  $rsWs = "$env:LOCALAPPDATA\Microsoft\Power BI Desktop SSRS\AnalysisServicesWorkspaces"
+  if (Test-Path $rsWs) { $rsWs }
+  else { "$env:LOCALAPPDATA\Microsoft\Power BI Desktop\AnalysisServicesWorkspaces" }
+}
 $ws = Get-ChildItem $wsRoot -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $port = (Get-Content (Join-Path $ws.FullName 'Data\msmdsrv.port.txt')) -replace [char]0, ''
 
@@ -76,7 +87,7 @@ foreach ($ts in $tableSpecs) {
       $v = $cd.values[$i]
       if ($null -eq $v) { $vals += 'BLANK()' }
       elseif ($cd.type -eq 'string') { $vals += ('"' + ([string]$v).Replace('"','""') + '"') }
-      elseif ($cd.type -eq 'date') { $vals += ('DATEVALUE("' + $v + '")') }
+      elseif ($cd.type -eq 'date') { $vals += ('dt"' + $v + '"') }
       else { $vals += [string]$v }
     }
     $rows += ('{' + ($vals -join ',') + '}')

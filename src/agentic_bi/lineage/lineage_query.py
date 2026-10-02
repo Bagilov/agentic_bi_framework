@@ -1,11 +1,15 @@
 """Query/introspection helpers over the parsed lineage (counts, DataFrames)."""
 from __future__ import annotations
 
+import logging
 from collections import Counter
 
 import pandas as pd
 
-from agentic_bi.lineage.lineage_types import Visual, _brand_level_ru
+from agentic_bi.lineage.lineage_brand import brand_audit_pages, visual_brand_metrics
+from agentic_bi.lineage.lineage_types import Source, Visual, _brand_level_ru
+
+logger = logging.getLogger(__name__)
 
 
 class QueryMixin:

@@ -1,4 +1,17 @@
-"""Visual container/config construction for the from-scratch .pbix layout."""
+"""Visual container/config construction for the from-scratch .pbix layout.
+
+Supported visual kinds (see `_VISUAL_TYPES`):
+    table matrix card column bar line area pie donut funnel waterfall
+    treemap stackedColumn stackedBar scatter gauge kpi slicer
+
+Projection roles follow real Power BI `Report/Layout` conventions:
+    cartesian / pie / funnel / waterfall : Category + Y (+ Series)
+    treemap                              : Group + Values
+    scatter                              : X + Y (+ Size)
+    gauge                                : Y
+    kpi                                  : Indicator + TrendLine
+    table / card / slicer / matrix       : Values (matrix: Rows + Values)
+"""
 from __future__ import annotations
 
 import json
@@ -8,6 +21,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# kind -> QOM visualType
 _VISUAL_TYPES = {
     "table": "tableEx",
     "matrix": "pivotTable",
@@ -15,12 +29,29 @@ _VISUAL_TYPES = {
     "column": "columnChart",
     "bar": "barChart",
     "line": "lineChart",
+    "area": "areaChart",
     "pie": "pieChart",
     "donut": "donutChart",
+    "treemap": "treemap",
+    "funnel": "funnel",
+    "waterfall": "waterfallChart",
+    "stackedColumn": "stackedColumnChart",
+    "stackedBar": "stackedBarChart",
+    "scatter": "scatterChart",
+    "gauge": "gauge",
+    "kpi": "kpi",
     "slicer": "slicer",
 }
 
-_AGG_FUNC = {"sum": 0, "avg": 1, "average": 1, "min": 2, "max": 3, "count": 4,
+# kinds whose value is a category + aggregated measure (Category/Y)
+_CATEGORY_CHARTS = {
+    "column", "bar", "line", "area", "pie", "donut",
+    "funnel", "waterfall", "stackedColumn", "stackedBar",
+}
+# category charts that accept an optional Series breakdown
+_SERIES_CHARTS = {"stackedColumn", "stackedBar"}
+
+_AGG_FUNC = {"sum": 0, "avg": 1, "average": 1, "count": 2, "min": 3, "max": 4,
              "count_nonnull": 5, "median": 6, "stddev": 7, "var": 8}
 _AGG_LABEL = {"sum": "Sum", "avg": "Avg", "average": "Avg", "min": "Min",
               "max": "Max", "count": "Count", "count_nonnull": "Count",
@@ -31,12 +62,18 @@ _AGG_LABEL = {"sum": "Sum", "avg": "Avg", "average": "Avg", "min": "Min",
 class Visual:
     """A single visual on a page.
 
-    kind    - table/matrix/card/column/bar/line/pie/donut/slicer
+    kind    - one of `_VISUAL_TYPES` (table/matrix/card/column/bar/line/area/
+              pie/donut/funnel/waterfall/treemap/stackedColumn/stackedBar/
+              scatter/gauge/kpi/slicer)
     table   - the model table name
     columns - a list of columns (table; for matrix - the row hierarchy)
-    axis    - the category/axis column (charts) or the slicer field (slicer)
-    value   - the value column (charts/matrix); aggregated by `agg`
+    axis    - the category/axis column (charts), the group column (treemap),
+              or the slicer field
+    value   - the value column (charts/matrix/gauge/kpi); aggregated by `agg`
     agg     - the value aggregation
+    x/y/size- scatter measures (X, Y, bubble Size); aggregated by `agg`
+    trend   - KPI trend-axis column
+    series  - optional Series breakdown column (stacked charts)
     title   - an optional title
     pos     - an optional position (x, y, w, h)
     """
@@ -47,6 +84,11 @@ class Visual:
     axis: str | None = None
     value: str | None = None
     agg: str = "sum"
+    x: str | None = None
+    y: str | None = None
+    size: str | None = None
+    trend: str | None = None
+    series: str | None = None
     title: str | None = None
     pos: tuple[int, int, int, int] | None = None
 
@@ -70,6 +112,21 @@ def _agg_ref(src: str, prop: str, agg: str) -> dict:
                             "Function": _AGG_FUNC.get(agg.lower(), 0)}}
 
 
+def _col_item(src: str, table: str, name: str) -> tuple[dict, str]:
+    """A `Column` select item; returns (item, queryRef)."""
+    qref = f"{table}.{name}"
+    return ({**_col_ref(src, name), "Name": qref,
+             "NativeReferenceName": name}, qref)
+
+
+def _agg_item(src: str, table: str, prop: str, agg: str) -> tuple[dict, str]:
+    """An `Aggregation` select item; returns (item, queryRef)."""
+    label = _AGG_LABEL.get(agg.lower(), "Sum")
+    qref = f"{label}({table}.{prop})"
+    return ({**_agg_ref(src, prop, agg), "Name": qref,
+             "NativeReferenceName": f"{label} {prop}"}, qref)
+
+
 def _visual_config(v: Visual) -> dict:
     """Assemble the config of one visualContainer from a Visual description.
 
@@ -81,52 +138,55 @@ def _visual_config(v: Visual) -> dict:
     order: list[dict] = []
     projections: dict[str, list[dict]] = {}
 
+    def add_column(name: str) -> str:
+        item, qref = _col_item(src, v.table, name)
+        select.append(item)
+        return qref
+
+    def add_agg(prop: str) -> str:
+        item, qref = _agg_item(src, v.table, prop, v.agg)
+        select.append(item)
+        return qref
+
     if v.kind == "table":
-        refs = []
-        for name in v.columns:
-            qref = f"{v.table}.{name}"
-            select.append({**_col_ref(src, name), "Name": qref,
-                           "NativeReferenceName": name})
-            refs.append({"queryRef": qref})
-        projections["Values"] = refs
+        projections["Values"] = [{"queryRef": add_column(n)} for n in v.columns]
     elif v.kind == "card":
-        agg_label = _AGG_LABEL.get(v.agg.lower(), "Sum")
-        qref = f"{agg_label}({v.table}.{v.value})"
-        select.append({**_agg_ref(src, v.value, v.agg), "Name": qref,
-                       "NativeReferenceName": f"{agg_label} {v.value}"})
-        projections["Values"] = [{"queryRef": qref}]
+        projections["Values"] = [{"queryRef": add_agg(v.value)}]
+    elif v.kind == "gauge":
+        projections["Y"] = [{"queryRef": add_agg(v.value)}]
+    elif v.kind == "kpi":
+        projections["Indicator"] = [{"queryRef": add_agg(v.value)}]
+        if v.trend:
+            projections["TrendLine"] = [{"queryRef": add_column(v.trend)}]
     elif v.kind == "slicer":
+        qref = add_column(v.axis)
+        projections["Values"] = [{"queryRef": qref, "active": True}]
         order.append({"Direction": 1, "Expression": _col_ref(src, v.axis)})
-        projections["Values"] = [
-            {"queryRef": f"{v.table}.{v.axis}", "active": True}]
-        select.append({**_col_ref(src, v.axis), "Name": f"{v.table}.{v.axis}",
-                       "NativeReferenceName": v.axis})
     elif v.kind == "matrix":
-        agg_label = _AGG_LABEL.get(v.agg.lower(), "Sum")
         row_refs = []
         for d in v.columns:
-            dref = f"{v.table}.{d}"
-            select.append({**_col_ref(src, d), "Name": dref,
-                           "NativeReferenceName": d})
+            dref = add_column(d)
             row_refs.append({"queryRef": dref})
             order.append({"Direction": 1, "Expression": _col_ref(src, d)})
         projections["Rows"] = row_refs
         if v.value:
-            val_ref = f"{agg_label}({v.table}.{v.value})"
-            select.append({**_agg_ref(src, v.value, v.agg), "Name": val_ref,
-                           "NativeReferenceName": f"{agg_label} {v.value}"})
-            projections["Values"] = [{"queryRef": val_ref}]
-    else:  # charts: category + aggregated value
-        axis_ref = f"{v.table}.{v.axis}"
-        select.append({**_col_ref(src, v.axis), "Name": axis_ref,
-                       "NativeReferenceName": v.axis})
-        agg_label = _AGG_LABEL.get(v.agg.lower(), "Sum")
-        val_ref = f"{agg_label}({v.table}.{v.value})"
-        select.append({**_agg_ref(src, v.value, v.agg), "Name": val_ref,
-                       "NativeReferenceName": f"{agg_label} {v.value}"})
+            projections["Values"] = [{"queryRef": add_agg(v.value)}]
+    elif v.kind == "treemap":
+        projections["Group"] = [{"queryRef": add_column(v.axis)}]
+        projections["Values"] = [{"queryRef": add_agg(v.value)}]
+    elif v.kind == "scatter":
+        projections["X"] = [{"queryRef": add_agg(v.x or v.value)}]
+        projections["Y"] = [{"queryRef": add_agg(v.y or v.axis)}]
+        if v.size:
+            projections["Size"] = [{"queryRef": add_agg(v.size)}]
+    else:  # category charts (incl. stacked with optional Series)
+        axis_ref = add_column(v.axis)
+        val_ref = add_agg(v.value)
         order.append({"Direction": 1, "Expression": _col_ref(src, v.axis)})
         projections["Category"] = [{"queryRef": axis_ref}]
         projections["Y"] = [{"queryRef": val_ref}]
+        if v.series and v.kind in _SERIES_CHARTS:
+            projections["Series"] = [{"queryRef": add_column(v.series)}]
 
     objects = {}
     if v.title:
@@ -168,5 +228,3 @@ def _container(v: Visual, x: int, y: int, w: int, h: int) -> dict:
     return {"x": x, "y": y, "z": 0, "width": w, "height": h,
             "config": json.dumps(cfg, ensure_ascii=False),
             "filters": "[]"}
-
-
