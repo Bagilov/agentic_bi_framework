@@ -71,6 +71,8 @@ class Visual:
               or the slicer field
     value   - the value column (charts/matrix/gauge/kpi); aggregated by `agg`
     agg     - the value aggregation
+    measure - an existing model measure to use as the value instead of
+              `value`+`agg` (charts/card/gauge/kpi/matrix/treemap)
     x/y/size- scatter measures (X, Y, bubble Size); aggregated by `agg`
     trend   - KPI trend-axis column
     series  - optional Series breakdown column (stacked charts)
@@ -84,6 +86,7 @@ class Visual:
     axis: str | None = None
     value: str | None = None
     agg: str = "sum"
+    measure: str | None = None
     x: str | None = None
     y: str | None = None
     size: str | None = None
@@ -127,6 +130,18 @@ def _agg_item(src: str, table: str, prop: str, agg: str) -> tuple[dict, str]:
              "NativeReferenceName": f"{label} {prop}"}, qref)
 
 
+def _measure_ref(src: str, name: str) -> dict:
+    return {"Measure": {"Expression": {"SourceRef": {"Source": src}},
+                        "Property": name}}
+
+
+def _measure_item(src: str, table: str, name: str) -> tuple[dict, str]:
+    """A `Measure` select item; returns (item, queryRef)."""
+    qref = f"{table}.{name}"
+    return ({**_measure_ref(src, name), "Name": qref,
+             "NativeReferenceName": name}, qref)
+
+
 def _visual_config(v: Visual) -> dict:
     """Assemble the config of one visualContainer from a Visual description.
 
@@ -148,14 +163,25 @@ def _visual_config(v: Visual) -> dict:
         select.append(item)
         return qref
 
+    def add_measure(name: str) -> str:
+        item, qref = _measure_item(src, v.table, name)
+        select.append(item)
+        return qref
+
+    def add_value() -> str:
+        """The value role: an explicit measure, else `value` aggregated by `agg`."""
+        if v.measure:
+            return add_measure(v.measure)
+        return add_agg(v.value)
+
     if v.kind == "table":
         projections["Values"] = [{"queryRef": add_column(n)} for n in v.columns]
     elif v.kind == "card":
-        projections["Values"] = [{"queryRef": add_agg(v.value)}]
+        projections["Values"] = [{"queryRef": add_value()}]
     elif v.kind == "gauge":
-        projections["Y"] = [{"queryRef": add_agg(v.value)}]
+        projections["Y"] = [{"queryRef": add_value()}]
     elif v.kind == "kpi":
-        projections["Indicator"] = [{"queryRef": add_agg(v.value)}]
+        projections["Indicator"] = [{"queryRef": add_value()}]
         if v.trend:
             projections["TrendLine"] = [{"queryRef": add_column(v.trend)}]
     elif v.kind == "slicer":
@@ -170,10 +196,10 @@ def _visual_config(v: Visual) -> dict:
             order.append({"Direction": 1, "Expression": _col_ref(src, d)})
         projections["Rows"] = row_refs
         if v.value:
-            projections["Values"] = [{"queryRef": add_agg(v.value)}]
+            projections["Values"] = [{"queryRef": add_value()}]
     elif v.kind == "treemap":
         projections["Group"] = [{"queryRef": add_column(v.axis)}]
-        projections["Values"] = [{"queryRef": add_agg(v.value)}]
+        projections["Values"] = [{"queryRef": add_value()}]
     elif v.kind == "scatter":
         projections["X"] = [{"queryRef": add_agg(v.x or v.value)}]
         projections["Y"] = [{"queryRef": add_agg(v.y or v.axis)}]
@@ -181,7 +207,7 @@ def _visual_config(v: Visual) -> dict:
             projections["Size"] = [{"queryRef": add_agg(v.size)}]
     else:  # category charts (incl. stacked with optional Series)
         axis_ref = add_column(v.axis)
-        val_ref = add_agg(v.value)
+        val_ref = add_value()
         order.append({"Direction": 1, "Expression": _col_ref(src, v.axis)})
         projections["Category"] = [{"queryRef": axis_ref}]
         projections["Y"] = [{"queryRef": val_ref}]
@@ -220,11 +246,46 @@ def _visual_config(v: Visual) -> dict:
     }
 
 
+def _data_query(single_visual: dict) -> str | None:
+    """Serialize the container-level semantic query newer Desktop needs to bind data.
+
+    Power BI Desktop persists the visual query in two places: `prototypeQuery`
+    inside `singleVisual` (legacy) and a container-level `query` holding a
+    `SemanticQueryDataShapeCommand` (what current Desktop actually renders from).
+    Without the latter a data-bound visual renders blank.
+    """
+    pq = single_visual.get("prototypeQuery")
+    if not pq:
+        return None
+    projections = list(range(len(pq.get("Select", []))))
+    return json.dumps({
+        "Commands": [{
+            "SemanticQueryDataShapeCommand": {
+                "Query": pq,
+                "Binding": {
+                    "Primary": {"Groupings": [{"Projections": projections,
+                                               "Subtotal": 1}]},
+                    "DataReduction": {"DataVolume": 3,
+                                      "Primary": {"Window": {"Count": 500}}},
+                    "Version": 1,
+                },
+                "ExecutionMetricsKind": 1,
+            }
+        }]
+    }, ensure_ascii=False)
+
+
 def _container(v: Visual, x: int, y: int, w: int, h: int) -> dict:
     cfg = _visual_config(v)
     for lay in cfg.get("layouts", []):
-        lay["position"] = {"x": x, "y": y, "z": 0, "width": w, "height": h}
+        lay["position"] = {"x": x, "y": y, "z": 0, "width": w, "height": h,
+                           "tabOrder": 0}
         break
-    return {"x": x, "y": y, "z": 0, "width": w, "height": h,
-            "config": json.dumps(cfg, ensure_ascii=False),
-            "filters": "[]"}
+    container = {"x": x, "y": y, "z": 0, "width": w, "height": h,
+                 "config": json.dumps(cfg, ensure_ascii=False),
+                 "filters": "[]"}
+    query = _data_query(cfg.get("singleVisual", {}))
+    if query is not None:
+        container["query"] = query
+        container["dataTransforms"] = "[]"
+    return container

@@ -48,7 +48,10 @@ logger = logging.getLogger(__name__)
 # Desktop executable and AS workspace root. Both prefer the RS build (the
 # framework's historical target) and fall back to the regular Desktop, and can
 # be pinned with PBI_RS_DESKTOP / PBI_RS_WS_ROOT.
-_DESKTOP_DIRS = ("Power BI Desktop RS", "Power BI Desktop")
+_DESKTOP_SUBPATHS = (
+    r"Microsoft Power BI Desktop RS\bin\PBIDesktop.exe",
+    r"Microsoft Power BI Desktop\bin\PBIDesktop.exe",
+)
 _WS_DIRS = ("Power BI Desktop SSRS", "Power BI Desktop")
 
 
@@ -56,11 +59,11 @@ def _default_desktop() -> str:
     env = os.environ.get("PBI_RS_DESKTOP")
     if env:
         return env
-    for name in _DESKTOP_DIRS:
-        exe = Path(r"C:\Program Files") / name / "bin" / "PBIDesktop.exe"
+    for sub in _DESKTOP_SUBPATHS:
+        exe = Path(r"C:\Program Files") / sub
         if exe.exists():
             return str(exe)
-    return r"C:\Program Files\Power BI Desktop RS\bin\PBIDesktop.exe"
+    return r"C:\Program Files\Microsoft Power BI Desktop RS\bin\PBIDesktop.exe"
 
 
 def _ws_root() -> Path:

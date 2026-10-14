@@ -87,6 +87,7 @@ def build_report(pages: list[tuple[str, list[Visual]]],
         page_w = max([1280] + [c["x"] + c["width"] + 20 for c in containers])
         page_h = max([1050] + [c["y"] + c["height"] + 20 for c in containers])
         sections.append({
+            "id": uuid.uuid4().int % 100000000,
             "name": uuid.uuid4().hex[:20],
             "displayName": page_name,
             "filters": "[]",

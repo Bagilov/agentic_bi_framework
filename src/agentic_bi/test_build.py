@@ -36,8 +36,11 @@ logger = logging.getLogger(__name__)
 def registry_from_spec(spec: dict) -> dict:
     """Build a {table:{columns,measures}} registry from a build spec."""
     return {
-        t["name"]: {"columns": [c["name"] for c in t["columns"]],
-                    "measures": []}
+        t["name"]: {
+            "columns": [c["name"] for c in t["columns"]],
+            "measures": [m["name"] for m in spec.get("measures", [])
+                         if m.get("table") == t["name"]],
+        }
         for t in spec["tables"]
     }
 

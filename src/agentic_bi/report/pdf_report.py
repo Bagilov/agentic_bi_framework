@@ -205,7 +205,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build a multi-page PDF lineage report from JSON/.pbix.")
     parser.add_argument("input", help="path to lineage.json or .pbix")
-    parser.add_argument("-o", "--output", default=None, help="output .pdf path")
+    parser.add_argument("-o", "--output", default=None,
+                        help="output .pdf path (default: next to the input as "
+                             "'<name>_YYYYMMDD_HHMMSS.pdf')")
     parser.add_argument("--title", default="Data lineage report")
     parser.add_argument("--page-size", default="A4", choices=["A4", "A3"])
     parser.add_argument("--orientation", default="landscape",
@@ -231,7 +233,13 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - diagram is best-effort
             logger.warning("could not build PlantUML: %s", exc)
 
-    out = args.output or str(Path(args.input).with_suffix(".pdf"))
+    inp = Path(args.input)
+    if args.output:
+        out = args.output
+    else:
+        # Timestamped default so repeated runs never overwrite each other.
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out = str(inp.with_name(f"{inp.stem}_{stamp}.pdf"))
     build_report(
         data, out, plantuml=plantuml, title=args.title,
         source_name=Path(args.input).name,
