@@ -146,6 +146,42 @@ report = engine_verify.verify_pbix("out.pbix", spec, model=True)
 print(report.ok(), report.critical_ok(), [c.name for c in report.failures])
 ```
 
+### Mandatory stage: open the board in Desktop (via the guest)
+
+The only authoritative "Desktop actually opens this report and attaches the
+model" check runs in the Windows guest. `desktop_oracle_guest.run_oracle` serves
+the file from the host, has the guest fetch it, runs `_engine_oracle.py` as an
+interactive scheduled task (WinRM is session 0, where Desktop never starts the
+engine) and reads back the verdict.
+
+Configure the gate with environment variables (no secrets in the repo):
+
+```sh
+export AGENTIC_BI_GUEST_WINRM="http://<guest-ip>:5985/wsman"
+export AGENTIC_BI_GUEST_USER="<user>"
+export AGENTIC_BI_GUEST_PASSWORD="<password>"
+export PBI_RS_DESKTOP='C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe'
+export PBI_RS_WS_ROOT="$LOCALAPPDATA\Microsoft\Power BI Desktop\AnalysisServicesWorkspaces"
+```
+
+Then run the gated stage (it skips cleanly when the guest is not configured):
+
+```sh
+.venv/bin/python -m pytest tests/test_pbix_desktop_oracle.py -v
+```
+
+`desktop_oracle_guest` also exposes `run_oracle(pbix) -> OracleResult` for
+scripted use. Notes:
+
+- A cold Desktop start on an emulated ARM guest takes minutes; the
+  workspace-detection ceiling is `open_timeout` (default 240s, env
+  `PBI_RS_ORACLE_OPEN_TIMEOUT`).
+- The oracle honors `PBI_RS_WS_ROOT`; the workspace root differs between the
+  regular Desktop and the RS build (it auto-detects which exists).
+- Transfer is host HTTP -> guest fetch. A `.pbix` cannot be pushed inline over
+  WinRM: long `-encodedcommand` payloads are silently truncated by the guest's
+  command-line limit.
+
 Gallery of **every** supported visual kind (one page):
 
 ```python

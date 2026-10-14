@@ -44,6 +44,7 @@ agentic_bi_framework/
     ├── spec.py / thresholds.py / agents.py
     ├── brand*.py              # corporate brand rules & auditing
     ├── publish.py / automate.py
+    ├── pbix_binary/           # member-level binary DataModel editing (incl. uneven length)
     ├── lineage/               # vendored: .pbix lineage extraction
     ├── antipatterns/          # vendored: DAX/M antipattern analysis
     ├── reportserver/          # vendored: generic Report Server access
@@ -113,6 +114,7 @@ The core runs on the Python standard library alone. Integrations are opt-in:
 | `server` | Report Server REST publish & inspection |
 | `brand` | `.pptx` brand auditing |
 | `tables` | Excel/Parquet export of lineage tables |
+| `binary` | member-level binary DataModel (ABF) editing (`xpress9`) |
 
 ## License
 

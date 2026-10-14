@@ -4,6 +4,7 @@ crash dump and no error dialog. Otherwise CRASH / NOT_MODEL_LOADED.
 
 Usage: python _oracle_strict.py <pbix> [hold_s]
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -15,12 +16,45 @@ import sys
 import time
 from ctypes import wintypes
 
-PBI_RS = os.environ.get(
-    "PBI_RS_DESKTOP",
-    r"C:\Program Files\Microsoft Power BI Desktop RS\bin\PBIDesktop.exe")
+# Desktop executable: prefer the RS build, fall back to the regular Desktop; can
+# be pinned with PBI_RS_DESKTOP (mirrors engine._default_desktop).
+_DESKTOP_SUBPATHS = (
+    r"Microsoft Power BI Desktop RS\bin\PBIDesktop.exe",
+    r"Microsoft Power BI Desktop\bin\PBIDesktop.exe",
+)
+
+
+def _default_desktop() -> str:
+    env = os.environ.get("PBI_RS_DESKTOP")
+    if env:
+        return env
+    for sub in _DESKTOP_SUBPATHS:
+        exe = os.path.join(r"C:\Program Files", sub)
+        if os.path.exists(exe):
+            return exe
+    return os.path.join(r"C:\Program Files", _DESKTOP_SUBPATHS[0])
+
+
 # Windows-only: LOCALAPPDATA is absent on other platforms, so resolve lazily.
-WS = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft",
-                  "Power BI Desktop SSRS", "AnalysisServicesWorkspaces")
+# The workspace root differs between the RS build and the regular Desktop; honor
+# PBI_RS_WS_ROOT, else auto-detect the sibling that exists (mirrors engine).
+_WS_DIRS = ("Power BI Desktop SSRS", "Power BI Desktop")
+
+
+def _ws_root() -> str:
+    env = os.environ.get("PBI_RS_WS_ROOT")
+    if env:
+        return env
+    base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft")
+    for name in _WS_DIRS:
+        cand = os.path.join(base, name, "AnalysisServicesWorkspaces")
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(base, _WS_DIRS[0], "AnalysisServicesWorkspaces")
+
+
+PBI_RS = _default_desktop()
+WS = _ws_root()
 
 
 def _kill() -> None:
@@ -65,11 +99,14 @@ def _tables(ws: str) -> list[str]:
 
 
 def run(pbix: str, hold: int = 45) -> str:
+    # Workspace-detection window: a cold launch on an emulated ARM guest can take
+    # well over a minute, so allow a generous, env-tunable ceiling.
+    open_timeout = int(os.environ.get("PBI_RS_ORACLE_OPEN_TIMEOUT", "180"))
     _kill()
     before = set(glob.glob(os.path.join(WS, "*")))
     proc = subprocess.Popen([PBI_RS, pbix])
     ws, t0 = None, time.time()
-    while time.time() - t0 < 40:
+    while time.time() - t0 < open_timeout:
         d = set(glob.glob(os.path.join(WS, "*"))) - before
         if d:
             ws = sorted(d)[0]

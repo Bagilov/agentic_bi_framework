@@ -62,6 +62,7 @@ data (CSV/JSON) -> model via TOM -> Server.ImageSave (canonical DataModel)
 | `engine_verify.py` | **Reverse self-test of a `.pbix`**: container, layout/pages, bindings, IN-filter guard, model read-back, **theme vs style guide** (`verify_brand`, `extract_report_theme`) |
 | `engine_cli.py` | Engine-build CLI (`--data/--table/--out/--oracle/--verify`) |
 | `_engine_build.ps1` / `_engine_oracle.py` | TOM+`ImageSave` and the strict Desktop oracle (internal) |
+| `pbix_binary/` | **Binary DataModel (ABF) member editing**: member-level patching of a `.pbix`, equal- and **uneven-length** (re-layout with recomputed offsets). See [§16](#16-binary-datamodel-editing-pbix_binary) |
 | `validate_pbix.py` | `validate_pbix(path)` — validate a produced `.pbix` layout against the donor model registry |
 | `publish.py` | `publish_pbix(pbix, name, folder, cfg)` — publish directly via REST /api/v2.0 |
 | `automate.py` | Orchestration: `run()`, `run_from_skeleton()`, `verify_published()`; CLI `--skeleton` |
@@ -527,3 +528,108 @@ Notes:
   `REPORT_PDF_FONT` (or the `--font` flag) when auto-detection is not enough.
 - Page size/orientation are flags; the matrix paginates automatically and the
   diagram tiles when it is taller than one page.
+
+---
+
+## 16. Binary DataModel editing (`pbix_binary/`)
+
+The binary VertiPaq `DataModel` is a closed, XPress9-framed member that cannot
+be authored from scratch — but it can be edited at the *member* level, including
+members whose new payload has a **different length**. This is the only place in
+the framework that touches the DataModel framing and the ABF indexes; every
+higher layer works through this API.
+
+```
+.pbix (zip)  ->  DataModel  ->  ABF (decompressed)
+                                   |  header (BackupLogHeader XML page)
+                                   |  member payloads
+                                   |  backup_log XML   (logical files/classes)
+                                   |  virtual_directory (absolute offsets/sizes)
+```
+
+Replacing a member with a different length invalidates the absolute offsets
+recorded in the virtual directory and the header, so the buffer is **re-laid**
+(payloads + backup log + directory) with every offset recomputed, then re-framed
+and swapped back into a **size-safe** container (the central directory and the
+local-header offsets of any member stored after `DataModel` are shifted too).
+
+Module map:
+
+| Module | Responsibility |
+|---|---|
+| `pbix_binary/abf_model.py` | ABF member model + the two XML indexes (parse/serialize; keeps the raw trees so engine-managed fields survive) |
+| `pbix_binary/abf_codec.py` | XPress9 framing of the `DataModel` member (`decompress_datamodel`, `compress_datamodel`, `crc32c`) |
+| `pbix_binary/abf_relayout.py` | `relayout_abf(abf, replace=..., add=...)` — rebuild around arbitrary-length members, re-offsetting |
+| `pbix_binary/patch_pipeline.py` | `apply_patches(pbix, patches, out)`, `classify_patches`, `load_spec`, size-safe `swap_datamodel` re-export |
+| `pbix_binary/patch_cli.py` | `agentic-bi-pbix-patch` CLI (`members`, `apply`) |
+
+Patch kinds (a JSON spec is a list, or `{"patches": [...]}`):
+
+```json
+{"patches": [
+  {"kind": "replace",        "find": "<utf-16 text>", "with": "<same length>"},
+  {"kind": "replace_hex",    "find": "<hex>",         "with": "<same length>"},
+  {"kind": "replace_member", "member": "metadata.sqlitedb", "path": "new.db"},
+  {"kind": "replace_member", "member": "<logical name>", "data": "<base64>"}
+]}
+```
+
+`replace`/`replace_hex` are byte-in-place and must keep the length: a
+length-changing byte patch is rejected (it would silently shift the stream).
+`replace_member` is the uneven-length path — the buffer is re-laid.
+
+### CLI
+
+```bash
+# list ABF members (storage id + logical name + size)
+agentic-bi-pbix-patch members --pbix template.pbix
+
+# apply a patch spec (uneven member replacement) + write a markdown report
+agentic-bi-pbix-patch apply --pbix template.pbix --spec patch.json \
+    --out out.pbix --report patch.md
+```
+
+### API
+
+```python
+from pathlib import Path
+from agentic_bi.pbix_binary import patch_pipeline
+
+report = patch_pipeline.apply_patches(
+    Path("template.pbix"),
+    [{"kind": "replace_member", "member": "metadata.sqlitedb",
+      "path": "new_model.db"}],
+    Path("out.pbix"),
+)
+print(report.size, report.abf_size, report.log)
+```
+
+Notes:
+
+- The `xpress9` codec is an optional dependency: `pip install -e ".[binary]"`.
+- The verify path (`engine_verify`) is unaffected by a member edit — the layout
+  references the model by name, and the edited model is read back with
+  `pbixray` in the integration tests.
+- Tests: `tests/test_pbix_binary_{codec,relayout,patch,board}.py`. The board test
+  builds a `.pbix` from the shipped donor and then edits its binary DataModel.
+
+### Desktop oracle stage (macOS host + Windows guest)
+
+`desktop_oracle_guest.py` runs the strict Desktop oracle on a built `.pbix`
+through a Windows VM. It is the authoritative "Desktop opens the report and
+attaches the model" stage that cannot run natively on Apple Silicon.
+
+- `GuestConfig.from_env()` / `GuestConfig.available()` — read the gate from
+  `AGENTIC_BI_GUEST_*` (+ optional `AGENTIC_BI_HOST_IP`); unset means "skipped".
+- `run_oracle(pbix, ...) -> OracleResult` — serve over host HTTP, guest fetches
+  (`Invoke-WebRequest`), run `_engine_oracle.py` as an interactive scheduled task,
+  poll the verdict (`MODEL_LOADED` = pass).
+- Tests: `tests/test_pbix_desktop_oracle.py` (skipped unless the guest is set).
+
+The oracle itself (`_engine_oracle.py`) is env-driven and auto-detects the
+Desktop/workspace (regular vs RS), with `PBI_RS_ORACLE_OPEN_TIMEOUT` for slow
+emulated cold starts.
+
+Observed on a Windows 11 ARM UTM guest (Power BI Desktop x64): both a freshly
+built board and the same board edited with the uneven `metadata.sqlitedb`
+replacement returned `MODEL_LOADED`.
