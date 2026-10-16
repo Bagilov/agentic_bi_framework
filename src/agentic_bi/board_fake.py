@@ -23,10 +23,10 @@ import json
 import logging
 from pathlib import Path
 
-from agentic_bi.skeleton import build_skeleton
-from agentic_bi.rebuild import rebuild_pbix, _extract_layout
-from agentic_bi.publish import publish_pbix
 from agentic_bi.automate import verify_published
+from agentic_bi.publish import publish_pbix
+from agentic_bi.rebuild import _extract_layout, rebuild_pbix
+from agentic_bi.skeleton import build_skeleton
 from agentic_bi.validate_pbix import validate_pbix
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,6 @@ def build_and_publish(
         {"name": "segment", "dataType": "string"},
         {"name": "category", "dataType": "string"},
     ]
-    measures = MEASURES
 
     skel_dir = out.parent / "skel_fake"
     _, layout = build_skeleton(
@@ -100,8 +99,11 @@ def build_and_publish(
     problems = validate_pbix(out)
     result["validate"] = {"ok": not problems, "problems": problems}
     if problems:
-        logger.error("%d layout problems (not publishing):\n- %s",
-                     len(problems), "\n- ".join(problems))
+        logger.error(
+            "%d layout problems (not publishing):\n- %s",
+            len(problems),
+            "\n- ".join(problems),
+        )
         raise RuntimeError(f"layout does not match the donor model: {problems}")
 
     if dry_run:
@@ -112,13 +114,17 @@ def build_and_publish(
         result["publish"] = {"skipped": "no server configured"}
         return result
 
-    cfg = {"server": server, "base_path": "/reportserver",
-           "api_prefix": "/api/v2.0", "timeout": 300}
+    cfg = {
+        "server": server,
+        "base_path": "/reportserver",
+        "api_prefix": "/api/v2.0",
+        "timeout": 300,
+    }
     res = publish_pbix(out, BOARD_NAME, folder, cfg)
     result["publish"] = res
     result["verify"] = verify_published(
-        server, folder, BOARD_NAME,
-        base="/reportserver", api="/api/v2.0")
+        server, folder, BOARD_NAME, base="/reportserver", api="/api/v2.0"
+    )
     return result
 
 
@@ -127,13 +133,18 @@ def main() -> None:
     p.add_argument("--src", default=DONOR, help="donor .pbix")
     p.add_argument("--server", default="", help="Report Server host (for publishing)")
     p.add_argument("--folder", default=TARGET_FOLDER, help="target folder")
-    p.add_argument("--dry-run", action="store_true", help="build only, without publishing")
+    p.add_argument(
+        "--dry-run", action="store_true", help="build only, without publishing"
+    )
     p.add_argument("--verbose", action="store_true")
     a = p.parse_args()
-    logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
-                        format="%(levelname)s: %(message)s")
-    res = build_and_publish(src=a.src, server=a.server, folder=a.folder,
-                            dry_run=a.dry_run)
+    logging.basicConfig(
+        level=logging.DEBUG if a.verbose else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+    res = build_and_publish(
+        src=a.src, server=a.server, folder=a.folder, dry_run=a.dry_run
+    )
     print("\n=== RESULT ===")
     print(json.dumps(res, ensure_ascii=False, indent=2))
 

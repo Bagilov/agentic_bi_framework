@@ -28,19 +28,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from agentic_bi.reportserver.diagnostics import NegotiateSession, load_config
+from agentic_bi.reportserver.pbix_index import IndexMixin
+
 logger = logging.getLogger(__name__)
-
-from agentic_bi.reportserver.diagnostics import NegotiateSession, load_config  # noqa: E402
-
-
-
-from agentic_bi.reportserver.diagnostics import NegotiateSession, load_config  # noqa: E402
-from agentic_bi.reportserver.pbix_index import IndexMixin  # noqa: E402
 
 
 def _slug(path: str) -> str:
     s = path.replace("\\", "/").rsplit("/", 1)[-1]
-    s = re.sub(r'[^\w\-.]+', "_", s, flags=re.UNICODE).strip("_")
+    s = re.sub(r"[^\w\-.]+", "_", s, flags=re.UNICODE).strip("_")
     return s[:80].rstrip(".") or "board"
 
 
@@ -62,8 +58,14 @@ class PbiRsBulk(IndexMixin):
     def list_powerbi(self, roots: list[str]) -> list[dict]:
         items: list[dict] = []
         for root in roots:
-            params = {"$filter": f"startswith(Path,'{root}')", "$top": 1000, "$select": "*"}
-            r = self.net.get(f"https://{self.server}{self.base}{self.api}/CatalogItems", params)
+            params = {
+                "$filter": f"startswith(Path,'{root}')",
+                "$top": 1000,
+                "$select": "*",
+            }
+            r = self.net.get(
+                f"https://{self.server}{self.base}{self.api}/CatalogItems", params
+            )
             if r.status_code != 200:
                 logger.warning("Catalog %s -> HTTP %s", root, r.status_code)
                 continue
@@ -102,6 +104,7 @@ class PbiRsBulk(IndexMixin):
         if not self.skip_ap:
             try:
                 from agentic_bi.antipatterns.pbi_antipatterns import analyze_pbix
+
                 ap = analyze_pbix(str(pbix))
                 result["antipatterns"] = ap
             except Exception as e:  # noqa: BLE001
@@ -113,11 +116,18 @@ class PbiRsBulk(IndexMixin):
         self.report_out.mkdir(parents=True, exist_ok=True)
         reports = self.list_powerbi(roots)
         if self.only_filter:
-            keep = [it for it in reports
-                    if any(k.lower() in it["Name"].lower() for k in self.only_filter)]
+            keep = [
+                it
+                for it in reports
+                if any(k.lower() in it["Name"].lower() for k in self.only_filter)
+            ]
             dropped = len(reports) - len(keep)
-            logger.info("Batch --only filter: %d of %d left (%d dropped)",
-                        len(keep), len(reports), dropped)
+            logger.info(
+                "Batch --only filter: %d of %d left (%d dropped)",
+                len(keep),
+                len(reports),
+                dropped,
+            )
             reports = keep
         if limit:
             reports = reports[:limit]
@@ -143,21 +153,43 @@ class PbiRsBulk(IndexMixin):
                 pbix.parent.mkdir(parents=True, exist_ok=True)
             dest = self.download(item, pbix)
             if not dest:
-                results.append({"root": item["root"], "name": item["Name"],
-                                "path": item["Path"], "error": "download_failed"})
+                results.append(
+                    {
+                        "root": item["root"],
+                        "name": item["Name"],
+                        "path": item["Path"],
+                        "error": "download_failed",
+                    }
+                )
                 continue
-            logger.info("[%d/%d] %s %.1f MB", i, len(reports),
-                        item["Name"], dest.stat().st_size / 1e6)
+            logger.info(
+                "[%d/%d] %s %.1f MB",
+                i,
+                len(reports),
+                item["Name"],
+                dest.stat().st_size / 1e6,
+            )
             try:
                 res = self.analyze(dest)
-                res.update({"root": item["root"], "path": item["Path"], "name": item["Name"]})
+                res.update(
+                    {"root": item["root"], "path": item["Path"], "name": item["Name"]}
+                )
                 per.parent.mkdir(parents=True, exist_ok=True)
-                per.write_text(json.dumps(res, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                per.write_text(
+                    json.dumps(res, ensure_ascii=False, indent=2, default=str),
+                    encoding="utf-8",
+                )
                 results.append(res)
             except Exception as e:  # noqa: BLE001
                 logger.error("analysis %s: %s", item["Name"], e)
-                results.append({"root": item["root"], "name": item["Name"],
-                                "path": item["Path"], "error": str(e)})
+                results.append(
+                    {
+                        "root": item["root"],
+                        "name": item["Name"],
+                        "path": item["Path"],
+                        "error": str(e),
+                    }
+                )
             finally:
                 if not self.keep_pbix and dest.exists():
                     dest.unlink()
@@ -194,41 +226,71 @@ class PbiRsBulk(IndexMixin):
         for root_dir in sorted(keep_dir.iterdir()) if keep_dir.exists() else []:
             if not root_dir.is_dir():
                 continue
-            root_key = "/" + root_dir.name if not root_dir.name.startswith("/") else root_dir.name
+            root_key = (
+                "/" + root_dir.name
+                if not root_dir.name.startswith("/")
+                else root_dir.name
+            )
             for pbix in sorted(root_dir.glob("*.pbix")):
                 stem = pbix.stem
                 try:
                     res = self.analyze(pbix)
                     res["root"] = root_key
                     id8 = stem.split("_")[-1]
-                    res["name"] = id2name.get(id8) or (stem.rsplit("_", 1)[0] if "_" in stem else stem)
+                    res["name"] = id2name.get(id8) or (
+                        stem.rsplit("_", 1)[0] if "_" in stem else stem
+                    )
                     # the server path (Report Server folder) matters more than the file name
                     res["path"] = id2path.get(id8) or pbix.name
                     per = self.report_out / _slug(root_key) / f"{stem}.json"
                     per.parent.mkdir(parents=True, exist_ok=True)
-                    per.write_text(json.dumps(res, ensure_ascii=False, indent=2, default=str),
-                                   encoding="utf-8")
+                    per.write_text(
+                        json.dumps(res, ensure_ascii=False, indent=2, default=str),
+                        encoding="utf-8",
+                    )
                     results.append(res)
                     ok += 1
                 except Exception as e:  # noqa: BLE001
                     logger.error("reanalyze %s: %s", pbix.name, e)
-                    results.append({"root": root_key, "name": pbix.stem, "error": str(e)})
+                    results.append(
+                        {"root": root_key, "name": pbix.stem, "error": str(e)}
+                    )
         return ok, results
+
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    p = argparse.ArgumentParser(description="Analyze .pbix from a Power BI Report Server")
+    p = argparse.ArgumentParser(
+        description="Analyze .pbix from a Power BI Report Server"
+    )
     p.add_argument("--roots", nargs="*", default=None)
-    p.add_argument("--only", nargs="*", default=None,
-                   help="download/analyze only boards whose name contains any of the strings (batch filter)")
-    p.add_argument("--limit", type=int, default=None, help="limit the number of reports (test)")
-    p.add_argument("--skip-antipatterns", action="store_true", help="do not compute antipatterns")
-    p.add_argument("--keep-pbix", action="store_true",
-                   help="keep downloaded .pbix in <out>/sources_pbix/<root>/ (otherwise delete)")
-    p.add_argument("--reanalyze-local", action="store_true",
-                   help="re-analyze saved local .pbix (without a server) and refresh indexes")
-    p.add_argument("--rebuild-index", action="store_true",
-                   help="rebuild indexes (index.json + drill_index.json) from ready board JSONs")
+    p.add_argument(
+        "--only",
+        nargs="*",
+        default=None,
+        help="download/analyze only boards whose name contains any of the strings (batch filter)",
+    )
+    p.add_argument(
+        "--limit", type=int, default=None, help="limit the number of reports (test)"
+    )
+    p.add_argument(
+        "--skip-antipatterns", action="store_true", help="do not compute antipatterns"
+    )
+    p.add_argument(
+        "--keep-pbix",
+        action="store_true",
+        help="keep downloaded .pbix in <out>/sources_pbix/<root>/ (otherwise delete)",
+    )
+    p.add_argument(
+        "--reanalyze-local",
+        action="store_true",
+        help="re-analyze saved local .pbix (without a server) and refresh indexes",
+    )
+    p.add_argument(
+        "--rebuild-index",
+        action="store_true",
+        help="rebuild indexes (index.json + drill_index.json) from ready board JSONs",
+    )
     args = p.parse_args(argv)
 
     b = PbiRsBulk()
@@ -240,7 +302,9 @@ def main(argv: list[str] | None = None) -> int:
         results = b.load_board_results()
         b.save_drill(results)
         idx = b.finalize(results)
-        print(f"Indexes rebuilt from {len(results)} boards:\n  {idx}\n  {b.drill_path()}")
+        print(
+            f"Indexes rebuilt from {len(results)} boards:\n  {idx}\n  {b.drill_path()}"
+        )
         return 0
 
     if args.reanalyze_local:
@@ -257,7 +321,9 @@ def main(argv: list[str] | None = None) -> int:
     idx = b.finalize(results)
     print(f"\nSummary index: {idx}")
     print(f"Drill index: {b.drill_path()}")
-    print(f"Total analyzed: {sum(1 for r in results if 'error' not in r)} of {len(results)}")
+    print(
+        f"Total analyzed: {sum(1 for r in results if 'error' not in r)} of {len(results)}"
+    )
     return 0
 
 

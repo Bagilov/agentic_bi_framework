@@ -41,11 +41,12 @@ Format (YAML/JSON):
 ``spec_to_board()`` translates a spec into a ``Board`` object from ``board.py``;
 ``to_dict/from_dict``/``load`` provide serialization and structural validation.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from agentic_bi.board import Board, col, measure
@@ -67,6 +68,7 @@ def _field_dict(f: dict) -> dict:
 @dataclass
 class ElementSpec:
     """A single visual/element of a page."""
+
     type: str
     field: dict | None = None
     fields: list[dict] | None = None
@@ -80,6 +82,7 @@ class ElementSpec:
 @dataclass
 class PageSpec:
     """A board page."""
+
     name: str
     title: str | None = None
     header: str | None = None
@@ -90,14 +93,15 @@ class PageSpec:
 @dataclass
 class DashboardSpec:
     """A declarative dashboard specification."""
+
     name: str
     table: str
     measure_table: str | None = None
     pages: list[PageSpec] = field(default_factory=list)
-    quality: dict = field(default_factory=dict)   # {thresholds: {...}}
-    deploy: dict = field(default_factory=dict)    # {pbirs_sync_config, ...}
-    control: dict = field(default_factory=dict)   # {verify, expected}
-    support: dict = field(default_factory=dict)   # {agents, enable_ids, disable_ids}
+    quality: dict = field(default_factory=dict)  # {thresholds: {...}}
+    deploy: dict = field(default_factory=dict)  # {pbirs_sync_config, ...}
+    control: dict = field(default_factory=dict)  # {verify, expected}
+    support: dict = field(default_factory=dict)  # {agents, enable_ids, disable_ids}
 
 
 # ─── parsing ───────────────────────────────────────────────
@@ -106,8 +110,9 @@ class DashboardSpec:
 def _parse_element(e: dict) -> ElementSpec:
     etype = e.get("type", "table")
     if etype not in _ELEMENT_TYPES:
-        raise ValueError(f"Unknown element type '{etype}'; allowed: "
-                         f"{sorted(_ELEMENT_TYPES)}")
+        raise ValueError(
+            f"Unknown element type '{etype}'; allowed: {sorted(_ELEMENT_TYPES)}"
+        )
     return ElementSpec(
         type=etype,
         field=e.get("field"),
@@ -153,9 +158,12 @@ def load(path: Path) -> DashboardSpec:
     if path.suffix.lower() in (".yaml", ".yml"):
         try:
             import yaml  # type: ignore
+
             data = yaml.safe_load(text)
         except ImportError:  # pragma: no cover
-            raise RuntimeError("YAML specs need PyYAML: uv pip install pyyaml")
+            raise RuntimeError(
+                "YAML specs need PyYAML: uv pip install pyyaml"
+            ) from None
     else:
         data = json.loads(text)
     return from_dict(data)
@@ -181,8 +189,8 @@ def to_yaml(spec: DashboardSpec) -> str:
     """Serialize a spec to a YAML string."""
     try:
         import yaml  # type: ignore
-        return yaml.safe_dump(to_dict(spec), allow_unicode=True,
-                              sort_keys=False)
+
+        return yaml.safe_dump(to_dict(spec), allow_unicode=True, sort_keys=False)
     except ImportError:  # pragma: no cover
         return json.dumps(to_dict(spec), ensure_ascii=False, indent=2)
 
@@ -203,8 +211,9 @@ def spec_to_board(spec: DashboardSpec) -> Board:
             if el.type == "kpi":
                 page.kpi(_field_dict(el.field), pos=pos)
             elif el.type == "chart":
-                page.chart(el.visual_type, _field_dict(el.axis),
-                           _field_dict(el.value), pos=pos)
+                page.chart(
+                    el.visual_type, _field_dict(el.axis), _field_dict(el.value), pos=pos
+                )
             elif el.type == "table":
                 page.table([_field_dict(f) for f in el.fields], pos=pos)
     return board
@@ -233,6 +242,13 @@ def validate_spec(spec: DashboardSpec) -> list[str]:
 
 
 __all__ = [
-    "DashboardSpec", "PageSpec", "ElementSpec", "from_dict", "load", "to_dict",
-    "to_yaml", "spec_to_board", "validate_spec",
+    "DashboardSpec",
+    "PageSpec",
+    "ElementSpec",
+    "from_dict",
+    "load",
+    "to_dict",
+    "to_yaml",
+    "spec_to_board",
+    "validate_spec",
 ]

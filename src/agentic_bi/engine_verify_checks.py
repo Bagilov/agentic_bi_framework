@@ -1,4 +1,5 @@
 """Structural checks of a produced `.pbix` (container/layout/bindings/data)."""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,6 @@ from agentic_bi.engine_verify_core import (
     _check,
     _iter_visuals,
     _resolve_qref,
-    load_layout,
     spec_objects,
 )
 
@@ -43,9 +43,12 @@ def _zip_ok(pbix: Path) -> bool:
         return False
 
 
-def verify_layout(layout: dict, spec: dict,
-                  pages: dict[str, int] | None = None,
-                  expected_types: set[str] | None = None) -> list[CheckResult]:
+def verify_layout(
+    layout: dict,
+    spec: dict,
+    pages: dict[str, int] | None = None,
+    expected_types: set[str] | None = None,
+) -> list[CheckResult]:
     """Check the Layout pages and visuals.
 
     pages - expected page name -> number of visuals (optional).
@@ -57,30 +60,44 @@ def verify_layout(layout: dict, spec: dict,
 
     if pages is not None:
         names = {s.get("displayName") for s in sections}
-        out.append(_check("page count", len(sections) == len(pages),
-                          f"expected={len(pages)} actual={len(sections)}"))
+        out.append(
+            _check(
+                "page count",
+                len(sections) == len(pages),
+                f"expected={len(pages)} actual={len(sections)}",
+            )
+        )
         for name, n in pages.items():
             out.append(_check(f"page present: {name}", name in names))
             if name in names:
                 sec = next(s for s in sections if s.get("displayName") == name)
                 actual = len(sec.get("visualContainers", []))
-                out.append(_check(f"page '{name}' visual count",
-                                  actual == n, f"expected={n} actual={actual}"))
+                out.append(
+                    _check(
+                        f"page '{name}' visual count",
+                        actual == n,
+                        f"expected={n} actual={actual}",
+                    )
+                )
 
     visuals = list(_iter_visuals(layout))
-    no_proj = [sv.get("visualType") for _, sv, _ in visuals
-               if not sv.get("projections")]
+    no_proj = [
+        sv.get("visualType") for _, sv, _ in visuals if not sv.get("projections")
+    ]
     out.append(_check("all visuals have projections", not no_proj, str(no_proj)))
     if expected_types is not None:
-        bad = [sv.get("visualType") for _, sv, _ in visuals
-               if sv.get("visualType") not in expected_types]
+        bad = [
+            sv.get("visualType")
+            for _, sv, _ in visuals
+            if sv.get("visualType") not in expected_types
+        ]
         out.append(_check("all visual types known", not bad, str(bad)))
     return out
 
 
-def verify_bindings(layout: dict, spec: dict,
-                    model_cols: dict[str, set[str]] | None = None
-                    ) -> list[CheckResult]:
+def verify_bindings(
+    layout: dict, spec: dict, model_cols: dict[str, set[str]] | None = None
+) -> list[CheckResult]:
     """Check that all visual fields reference existing objects.
 
     The check is done against the build spec (tables/measures). If `model_cols`
@@ -141,8 +158,7 @@ def _has_in_filter(raw: str) -> bool:
     return False
 
 
-def verify_model_data(pbix: Path, spec: dict, sample: int = 50
-                      ) -> list[CheckResult]:
+def verify_model_data(pbix: Path, spec: dict, sample: int = 50) -> list[CheckResult]:
     """Compare the read-back model against the source spec (data/schema).
 
     Checks are marked `critical=False`: the read is done by a third-party decoder
@@ -152,9 +168,14 @@ def verify_model_data(pbix: Path, spec: dict, sample: int = 50
     try:
         from pbixray import PBIXRay
     except ImportError:
-        return [_check("pbixray available", False,
-                       "pip install pbixray for model read-back",
-                       critical=False)]
+        return [
+            _check(
+                "pbixray available",
+                False,
+                "pip install pbixray for model read-back",
+                critical=False,
+            )
+        ]
     out: list[CheckResult] = []
     with PBIXRay(str(pbix)) as pb:
         have = set(pb.tables)
@@ -163,18 +184,32 @@ def verify_model_data(pbix: Path, spec: dict, sample: int = 50
             cols = [c["name"] for c in t.get("columns", [])]
             nrows = len(t["columns"][0]["values"]) if t.get("columns") else 0
             if name not in have:
-                out.append(_check(f"table present: {name}", False,
-                                  f"tables={sorted(have)}", critical=False))
+                out.append(
+                    _check(
+                        f"table present: {name}",
+                        False,
+                        f"tables={sorted(have)}",
+                        critical=False,
+                    )
+                )
                 continue
             df = pb.get_table(name)
-            out.append(_check(f"table '{name}' columns present",
-                              all(c in df.columns for c in cols),
-                              f"missing={[c for c in cols if c not in df.columns]}",
-                              critical=False))
-            out.append(_check(f"table '{name}' row count",
-                              len(df) == nrows,
-                              f"expected={nrows} actual={len(df)}",
-                              critical=False))
+            out.append(
+                _check(
+                    f"table '{name}' columns present",
+                    all(c in df.columns for c in cols),
+                    f"missing={[c for c in cols if c not in df.columns]}",
+                    critical=False,
+                )
+            )
+            out.append(
+                _check(
+                    f"table '{name}' row count",
+                    len(df) == nrows,
+                    f"expected={nrows} actual={len(df)}",
+                    critical=False,
+                )
+            )
             if t.get("columns"):
                 out.extend(_verify_values(df, t, sample))
     return out
@@ -196,9 +231,14 @@ def _verify_values(df, table_spec: dict, sample: int) -> list[CheckResult]:
             # in numeric columns allow a comparison with type coercion
             if not _values_close(expected, actual):
                 mismatch_cols.append(cname)
-    out.append(_check(f"table '{name}' sample values ({n} rows)",
-                      not mismatch_cols, f"mismatch={mismatch_cols}",
-                      critical=False))
+    out.append(
+        _check(
+            f"table '{name}' sample values ({n} rows)",
+            not mismatch_cols,
+            f"mismatch={mismatch_cols}",
+            critical=False,
+        )
+    )
     return out
 
 
@@ -207,6 +247,7 @@ def _norm(x):
         return None
     try:
         import math
+
         if isinstance(x, float) and math.isnan(x):
             return None
     except ImportError:  # pragma: no cover
@@ -221,7 +262,7 @@ def _norm(x):
 def _values_close(a: list, b: list) -> bool:
     if len(a) != len(b):
         return False
-    for x, y in zip(a, b):
+    for x, y in zip(a, b, strict=True):
         if x == y:
             continue
         try:
@@ -230,5 +271,3 @@ def _values_close(a: list, b: list) -> bool:
         except (TypeError, ValueError):
             return False
     return True
-
-

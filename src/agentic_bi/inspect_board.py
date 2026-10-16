@@ -21,9 +21,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from agentic_bi.reportserver.pbix_analysis import PbiRsBulk
+
+logger = logging.getLogger(__name__)
 
 OUT_DIR = Path(__file__).resolve().parent / "output_files"
 
@@ -53,9 +53,7 @@ def find_by_path(bulk: PbiRsBulk, path: str) -> dict:
         "$filter": f"Path eq '{path}' and Type eq 'PowerBIReport'",
         "$select": "*",
     }
-    r = bulk.net.get(
-        f"https://{bulk.server}{bulk.base}{bulk.api}/CatalogItems", params
-    )
+    r = bulk.net.get(f"https://{bulk.server}{bulk.base}{bulk.api}/CatalogItems", params)
     if r.status_code != 200:
         raise PbirsAccessError(f"Catalog {path} -> HTTP {r.status_code}")
     items = r.json().get("value", [])
@@ -67,7 +65,9 @@ def find_by_path(bulk: PbiRsBulk, path: str) -> dict:
 def download_report(bulk: PbiRsBulk, item: dict, dest: Path) -> Path:
     """Download the report .pbix; raises PbirsAccessError on 403."""
     iid = item["Id"]
-    url = f"https://{bulk.server}{bulk.base}{bulk.api}/catalogitems({iid})/Content/$value"
+    url = (
+        f"https://{bulk.server}{bulk.base}{bulk.api}/catalogitems({iid})/Content/$value"
+    )
     r = bulk.net.request("GET", url)
     if r.status_code == 403:
         raise PbirsAccessError(
@@ -160,8 +160,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Inspect a Report Server dashboard: elements by path"
     )
     p.add_argument("--path", required=True, help="full report path on the server")
-    p.add_argument("--keep-pbix", action="store_true",
-                   help="keep the downloaded .pbix in output_files/inspect")
+    p.add_argument(
+        "--keep-pbix",
+        action="store_true",
+        help="keep the downloaded .pbix in output_files/inspect",
+    )
     args = p.parse_args(argv)
 
     try:
@@ -173,7 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(thesis, ensure_ascii=False, indent=2))
     report = OUT_DIR / "inspect" / f"{Path(args.path).name}.json"
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps(thesis, ensure_ascii=False, indent=2), encoding="utf-8")
+    report.write_text(
+        json.dumps(thesis, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     logger.info("Saved: %s", report)
     return 0
 

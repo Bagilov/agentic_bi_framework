@@ -1,4 +1,5 @@
 """Report/model assembly for the PBIP skeleton: report.json, model.bim, files."""
+
 from __future__ import annotations
 
 import json
@@ -22,17 +23,22 @@ def build_report(sections: list[dict]) -> dict:
     """
     out_sections = []
     for s in sections:
-        out_sections.append({
-            "name": s["name"],
-            "displayName": s["displayName"],
-            "filters": json.dumps(s.get("filters", []), ensure_ascii=False),
-            "config": json.dumps({
-                "width": s.get("width", 1280),
-                "height": s.get("height", 800),
-                "background": {"color": "#FFFFFF"},
-            }, ensure_ascii=False),
-            "visualContainers": s.get("containers", []),
-        })
+        out_sections.append(
+            {
+                "name": s["name"],
+                "displayName": s["displayName"],
+                "filters": json.dumps(s.get("filters", []), ensure_ascii=False),
+                "config": json.dumps(
+                    {
+                        "width": s.get("width", 1280),
+                        "height": s.get("height", 800),
+                        "background": {"color": "#FFFFFF"},
+                    },
+                    ensure_ascii=False,
+                ),
+                "visualContainers": s.get("containers", []),
+            }
+        )
     return {
         "version": "1.0",
         "config": json.dumps({"theme": "default", "filter": {"filter": None}}),
@@ -52,13 +58,21 @@ def build_model(tables: list[dict]) -> dict:
         if "partitions" not in nt:
             cols = nt.get("columns", [])
             args = ", ".join(
-                f'"{c["name"]}", STRING' if c.get("dataType") == "string" else
-                f'"{c["name"]}", DOUBLE'
-                for c in cols)
-            nt["partitions"] = [{
-                "name": f"{t['name']}-1", "mode": "import",
-                "source": {"type": "calculated",
-                           "expression": f'DATATABLE({args}, {{}})'}}]
+                f'"{c["name"]}", STRING'
+                if c.get("dataType") == "string"
+                else f'"{c["name"]}", DOUBLE'
+                for c in cols
+            )
+            nt["partitions"] = [
+                {
+                    "name": f"{t['name']}-1",
+                    "mode": "import",
+                    "source": {
+                        "type": "calculated",
+                        "expression": f"DATATABLE({args}, {{}})",
+                    },
+                }
+            ]
         norm.append(nt)
     return {
         "name": "SemanticModel",
@@ -66,8 +80,10 @@ def build_model(tables: list[dict]) -> dict:
         "model": {
             "culture": "en-US",
             "annotations": [
-                {"name": "DefaultMeasureTable",
-                 "value": (norm[0]["name"] if norm else "Data")},
+                {
+                    "name": "DefaultMeasureTable",
+                    "value": (norm[0]["name"] if norm else "Data"),
+                },
                 {"name": "defaultPowerBIDataSourceVersion", "value": "powerBI_V3"},
             ],
             "tables": norm,
@@ -114,58 +130,83 @@ def build_skeleton(
 
     # model
     measure_alias = "s" if measure_table else None
-    model_tables = [{
-        "name": table,
-        "columns": columns,
-        "measures": measures if not measure_table else [],
-    }]
+    model_tables = [
+        {
+            "name": table,
+            "columns": columns,
+            "measures": measures if not measure_table else [],
+        }
+    ]
     if measure_table:
-        model_tables.append({
-            "name": measure_table,
-            "columns": [],
-            "measures": measures,
-        })
+        model_tables.append(
+            {
+                "name": measure_table,
+                "columns": [],
+                "measures": measures,
+            }
+        )
     model = build_model(model_tables)
 
     # visuals
-    kpi_visual = card_visual(kpi, table, measure_table=measure_table,
-                             measure_alias=measure_alias)
-    chart_visual_obj = chart_visual(chart_type, chart_axis, chart_value, table,
-                             measure_table=measure_table,
-                             measure_alias=measure_alias)
-    table_visual_obj = table_visual(table_fields, table,
-                             measure_table=measure_table,
-                             measure_alias=measure_alias)
+    kpi_visual = card_visual(
+        kpi, table, measure_table=measure_table, measure_alias=measure_alias
+    )
+    chart_visual_obj = chart_visual(
+        chart_type,
+        chart_axis,
+        chart_value,
+        table,
+        measure_table=measure_table,
+        measure_alias=measure_alias,
+    )
+    table_visual_obj = table_visual(
+        table_fields, table, measure_table=measure_table, measure_alias=measure_alias
+    )
 
     # page filters
     page_filters = [page_filter(c, table) for c in filter_columns]
 
-    report = build_report([{
-        "name": page_name,
-        "displayName": display_name,
-        "width": 1280,
-        "height": 800,
-        "filters": page_filters,
-        "containers": [kpi_visual, chart_visual_obj, table_visual_obj],
-    }])
+    report = build_report(
+        [
+            {
+                "name": page_name,
+                "displayName": display_name,
+                "width": 1280,
+                "height": 800,
+                "filters": page_filters,
+                "containers": [kpi_visual, chart_visual_obj, table_visual_obj],
+            }
+        ]
+    )
 
     # write out
-    _write(report_dir := out / f"{report_name}.Report",
-           "report.json", report)
+    _write(out / f"{report_name}.Report", "report.json", report)
     semantic = out / f"{report_name}.Semantic"
     _write(semantic, "model.bim", model)
     _write(semantic, "definition.pbism", {"version": "1.0"})
-    _write(out, f"{report_name}.pbir", {
-        "version": "1.0",
-        "reportConfig": json.dumps(
-            {"config": json.dumps({"theme": "default", "filter": {"filter": None}}),
-             "version": "1.0"},
-            ensure_ascii=False),
-    })
+    _write(
+        out,
+        f"{report_name}.pbir",
+        {
+            "version": "1.0",
+            "reportConfig": json.dumps(
+                {
+                    "config": json.dumps(
+                        {"theme": "default", "filter": {"filter": None}}
+                    ),
+                    "version": "1.0",
+                },
+                ensure_ascii=False,
+            ),
+        },
+    )
 
     pbir = out / f"{report_name}.pbir"
-    logger.info("Skeleton built: %s (visuals: kpi+chart+table, filters: %s)",
-                pbir, ", ".join(filter_columns) or "-")
+    logger.info(
+        "Skeleton built: %s (visuals: kpi+chart+table, filters: %s)",
+        pbir,
+        ", ".join(filter_columns) or "-",
+    )
     # layout in .pbix format (for rebuild_pbix(layout=...))
     layout = layout_from_report(report, None)
     return pbir, layout
@@ -188,23 +229,30 @@ def layout_from_report(report: dict, base_layout: dict | None = None) -> dict:
         "id": base.get("id", 0),
         "filters": "[]",
         "resourcePackages": base.get("resourcePackages", []),
-        "config": base.get("config", '{"version":"5.54","themeCollection":{"baseTheme":{"name":"CY24SU05","version":"5.38","compatVersion":5}}}'),
+        "config": base.get(
+            "config",
+            '{"version":"5.54","themeCollection":{"baseTheme":{"name":"CY24SU05","version":"5.38","compatVersion":5}}}',
+        ),
         "layoutOptimization": base.get("layoutOptimization", 0),
     }
     sections = []
     for i, sec in enumerate(report.get("sections", [])):
-        sections.append({
-            "id": sec.get("id", f"ReportSection{i}"),
-            "name": sec.get("name", f"ReportSection{i}"),
-            "displayName": sec.get("displayName", "Page"),
-            "filters": sec.get("filters", "[]"),
-            "ordinal": i,
-            "visualContainers": sec.get("containers", sec.get("visualContainers", [])),
-            "config": sec.get("config", ""),
-            "displayOption": 1,
-            "width": sec.get("width", 1280),
-            "height": sec.get("height", 800),
-        })
+        sections.append(
+            {
+                "id": sec.get("id", f"ReportSection{i}"),
+                "name": sec.get("name", f"ReportSection{i}"),
+                "displayName": sec.get("displayName", "Page"),
+                "filters": sec.get("filters", "[]"),
+                "ordinal": i,
+                "visualContainers": sec.get(
+                    "containers", sec.get("visualContainers", [])
+                ),
+                "config": sec.get("config", ""),
+                "displayOption": 1,
+                "width": sec.get("width", 1280),
+                "height": sec.get("height", 800),
+            }
+        )
     layout["sections"] = sections
     return layout
 
@@ -212,7 +260,8 @@ def layout_from_report(report: dict, base_layout: dict | None = None) -> dict:
 def _write(base: Path, name: str, data: dict) -> None:
     base.mkdir(parents=True, exist_ok=True)
     (base / name).write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def main() -> None:
@@ -242,7 +291,11 @@ def main() -> None:
         kpi={"kind": "measure", "property": "TotalTarget", "display": "Total target"},
         chart_type="lineChart",
         chart_axis={"kind": "column", "property": "period_start", "display": "Period"},
-        chart_value={"kind": "measure", "property": "AvgScore", "display": "Average score"},
+        chart_value={
+            "kind": "measure",
+            "property": "AvgScore",
+            "display": "Average score",
+        },
         table_fields=[
             {"kind": "column", "property": "segment", "display": "Segment"},
             {"kind": "measure", "property": "TotalTarget", "display": "Target"},

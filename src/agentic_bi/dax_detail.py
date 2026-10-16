@@ -23,15 +23,18 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from agentic_bi.dax_markers import (
     DAX_DISTORT_MARKERS,
     M_DISTORT_MARKERS,
+)
+from agentic_bi.dax_markers import (
     scan_markers as _scan,
 )
 
+logger = logging.getLogger(__name__)
+
 OUT_DIR = Path(__file__).resolve().parent / "output_files"
+
 
 def _flatten_exprs(measures: list[dict]) -> str:
     """Join all measure expressions into one string for fast scanning."""
@@ -121,8 +124,9 @@ def _scan_markers(expr: str, markers: dict) -> list[str]:
     return _scan(expr, markers)
 
 
-def build_distort_index(measures: list[dict], calc_columns: list[dict],
-                        power_query: dict[str, str]) -> dict:
+def build_distort_index(
+    measures: list[dict], calc_columns: list[dict], power_query: dict[str, str]
+) -> dict:
     """Build a distortion-risk index across the DAX and M layers.
 
     Args:
@@ -178,8 +182,7 @@ def _extract_thresholds(measures: list[dict]) -> list[dict]:
     return out
 
 
-def analyze_dax_detail(pbix: str | Path,
-                       run_antipatterns: bool = True) -> dict:
+def analyze_dax_detail(pbix: str | Path, run_antipatterns: bool = True) -> dict:
     """Full DAX/M analysis of a `.pbix`: measures, columns, M, distortion indices.
 
     Args:
@@ -227,6 +230,7 @@ def analyze_dax_detail(pbix: str | Path,
     if run_antipatterns:
         try:
             from agentic_bi.antipatterns import pbi_antipatterns as ap
+
             # call without stdout output: build in-memory
             res = ap.analyze_pbix(str(pbix))
             result["antipatterns"] = res.get("summary", {})
@@ -245,22 +249,32 @@ def main(argv: list[str] | None = None) -> int:
         description="DAX/M analysis of a .pbix: measures, columns, M, distortion risks"
     )
     p.add_argument("pbix", help="path to the .pbix artifact")
-    p.add_argument("-o", "--out", default=None,
-                   help="path to the JSON result file (default output_files/)")
-    p.add_argument("--no-antipatterns", action="store_true",
-                   help="do not attach the antipattern summary")
-    p.add_argument("--summary", action="store_true",
-                   help="print only the summary, without the JSON dump")
+    p.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        help="path to the JSON result file (default output_files/)",
+    )
+    p.add_argument(
+        "--no-antipatterns",
+        action="store_true",
+        help="do not attach the antipattern summary",
+    )
+    p.add_argument(
+        "--summary",
+        action="store_true",
+        help="print only the summary, without the JSON dump",
+    )
     args = p.parse_args(argv)
 
-    data = analyze_dax_detail(
-        args.pbix, run_antipatterns=not args.no_antipatterns
-    )
+    data = analyze_dax_detail(args.pbix, run_antipatterns=not args.no_antipatterns)
 
     if args.summary:
         s = data["summary"]
-        print(f"Measures: {s['measures_total']} | Columns: {s['calc_columns_total']} | "
-              f"PQ tables: {len(s['power_query_tables'])}")
+        print(
+            f"Measures: {s['measures_total']} | Columns: {s['calc_columns_total']} | "
+            f"PQ tables: {len(s['power_query_tables'])}"
+        )
         dist = data["distort"]
         for level, markers in dist.items():
             if markers:

@@ -33,17 +33,17 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from agentic_bi.antipatterns.antipattern_registry import (  # noqa: F401
-    ANTIPATTERNS,
-    Antipattern,
-    _registry,
-)
 from agentic_bi.antipatterns.antipattern_detectors import (  # noqa: F401
     analyze_board,
     analyze_calc_column,
     analyze_measure,
     analyze_source_m,
     analyze_table,
+)
+from agentic_bi.antipatterns.antipattern_registry import (  # noqa: F401
+    ANTIPATTERNS,
+    Antipattern,
+    _registry,
 )
 
 
@@ -59,10 +59,13 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
         dict {meta, summary, findings}
     """
     reg = _registry()
-    meta = {"type": "pbi_antipatterns", "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "anti_patterns": len(reg)}
+    meta = {
+        "type": "pbi_antipatterns",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "anti_patterns": len(reg),
+    }
 
-    findings: dict[str, list] = defaultdict(list)   # level -> list of findings
+    findings: dict[str, list] = defaultdict(list)  # level -> list of findings
 
     # ---- sources (M code) ----
     pq = m.power_query
@@ -83,7 +86,9 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
 
     # ---- calculated columns ----
     for _, row in m.dax_columns.iterrows():
-        findings["calc_column"] += analyze_calc_column(row["TableName"], row["ColumnName"], row["Expression"])
+        findings["calc_column"] += analyze_calc_column(
+            row["TableName"], row["ColumnName"], row["Expression"]
+        )
 
     # ---- tables (aggregated) ----
     tables_json = {}
@@ -106,11 +111,13 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
         "tables": len(m.tables),
     }
     if pages is not None:
-        findings["board"] = analyze_board({"file": meta.get("file", "board")}, pages, total)
+        findings["board"] = analyze_board(
+            {"file": meta.get("file", "board")}, pages, total
+        )
 
     # ---- summary by id ----
     id_counter: Counter = Counter()
-    for lvl, items in findings.items():
+    for items in findings.values():
         for it in items:
             id_counter[it["id"]] += 1
 
@@ -130,6 +137,7 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
 def analyze_pbix(pbix_path: str) -> dict:
     """Analyze a .pbix for antipatterns: input .pbix, output JSON metric."""
     from agentic_bi.lineage.pbi_lineage import PbiLineage
+
     with PbiLineage(pbix_path) as lg:
         m = lg._model
         pages_json = lg.to_json(include_plantuml=False).get("pages", [])
@@ -147,11 +155,18 @@ def _write(data: dict, out: Path) -> Path:
 def main():
     parser = argparse.ArgumentParser(
         description="Antipattern analysis of Power BI calculations (source M code + DAX inside the board).\n"
-                    "Output: JSON with an antipattern metric tied to the level (source/measure/calc/table/board).")
+        "Output: JSON with an antipattern metric tied to the level (source/measure/calc/table/board)."
+    )
     parser.add_argument("pbix", help="path to the .pbix file")
-    parser.add_argument("-o", "--output", default=None,
-                        help="output JSON (default output_files/<name>_antipatterns.json)")
-    parser.add_argument("--summary", action="store_true", help="print a short console summary")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="output JSON (default output_files/<name>_antipatterns.json)",
+    )
+    parser.add_argument(
+        "--summary", action="store_true", help="print a short console summary"
+    )
     args = parser.parse_args()
 
     pbix = Path(args.pbix)
@@ -159,8 +174,15 @@ def main():
         sys.exit(f"Input not found: {pbix}")
 
     data = analyze_pbix(str(pbix))
-    out = Path(args.output) if args.output else (
-        Path(__file__).resolve().parent / "output_files" / f"{pbix.stem}_antipatterns.json")
+    out = (
+        Path(args.output)
+        if args.output
+        else (
+            Path(__file__).resolve().parent
+            / "output_files"
+            / f"{pbix.stem}_antipatterns.json"
+        )
+    )
     _write(data, out)
     print(f"Antipatterns saved: {out}")
     if args.summary:
