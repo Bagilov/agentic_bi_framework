@@ -31,6 +31,7 @@ Example:
 Positioning is automatic: page elements are laid out on a grid (rows). An
 explicit position can be set via `pos=(x, y, w, h)`.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,10 +40,20 @@ from pathlib import Path
 
 from agentic_bi.skeleton import (
     build_report as _build_report,
+)
+from agentic_bi.skeleton import (
     card_visual as _card_visual,
+)
+from agentic_bi.skeleton import (
     chart_visual as _chart_visual,
+)
+from agentic_bi.skeleton import (
     layout_from_report as _layout_from_report,
+)
+from agentic_bi.skeleton import (
     page_filter as _page_filter,
+)
+from agentic_bi.skeleton import (
     table_visual as _table_visual,
 )
 
@@ -76,8 +87,15 @@ def measure(name: str, display: str | None = None) -> dict:
 class _Cursor:
     """Streaming layout: elements flow across columns, then down to a new row."""
 
-    def __init__(self, x0: int, y0: int, canvas_w: int, cols: int, row_h: int,
-                 start_index: int = 0):
+    def __init__(
+        self,
+        x0: int,
+        y0: int,
+        canvas_w: int,
+        cols: int,
+        row_h: int,
+        start_index: int = 0,
+    ):
         self.x0 = x0
         self.y0 = y0
         self.canvas_w = canvas_w
@@ -109,8 +127,16 @@ def _set_position(container: dict, x: int, y: int, w: int, h: int) -> dict:
 class PageView:
     """A board page: accumulates elements and page-level filters."""
 
-    def __init__(self, board: "Board", name: str, title: str | None,
-                 width: int, height: int, cols: int, row_h: int):
+    def __init__(
+        self,
+        board: Board,
+        name: str,
+        title: str | None,
+        width: int,
+        height: int,
+        cols: int,
+        row_h: int,
+    ):
         self.board = board
         self.name = name
         self.title = title or name
@@ -122,13 +148,15 @@ class PageView:
         self._filters: list[dict] = []
 
     # ── internal ──
-    def _add(self, container: dict,
-             pos: tuple[int, int, int, int] | None = None) -> dict:
+    def _add(
+        self, container: dict, pos: tuple[int, int, int, int] | None = None
+    ) -> dict:
         n = len(self.elements)
         if pos is None:
             item_w = (self.width - 40) // self.cols
-            x, y, w, h = _Cursor(20, 20, self.width, self.cols, self.row_h,
-                                 start_index=n).next(item_w, self.row_h)
+            x, y, w, h = _Cursor(
+                20, 20, self.width, self.cols, self.row_h, start_index=n
+            ).next(item_w, self.row_h)
         else:
             x, y, w, h = pos
         _set_position(container, x, y, w, h)
@@ -141,41 +169,85 @@ class PageView:
         single = {
             "visualType": "textbox",
             "title": text,
-            "objects": {"general": [{"properties": {
-                "paragraphs": [{"textRuns": [{"value": text}]}],
-                "verticalAlignment": {"expr": {"Literal": {"Value": "'Top'"}}},
-            }}]},
+            "objects": {
+                "general": [
+                    {
+                        "properties": {
+                            "paragraphs": [{"textRuns": [{"value": text}]}],
+                            "verticalAlignment": {
+                                "expr": {"Literal": {"Value": "'Top'"}}
+                            },
+                        }
+                    }
+                ]
+            },
         }
-        cfg = json.dumps({
-            "name": f"Header_{self.board._next_name()}",
-            "layouts": [{"id": 0, "position": {"x": 20, "y": 20, "width": self.width - 40,
-                                               "height": 40, "z": 0}}],
-            "singleVisual": single,
-        }, ensure_ascii=False)
+        cfg = json.dumps(
+            {
+                "name": f"Header_{self.board._next_name()}",
+                "layouts": [
+                    {
+                        "id": 0,
+                        "position": {
+                            "x": 20,
+                            "y": 20,
+                            "width": self.width - 40,
+                            "height": 40,
+                            "z": 0,
+                        },
+                    }
+                ],
+                "singleVisual": single,
+            },
+            ensure_ascii=False,
+        )
         return self._add({"config": cfg, "filters": "[]", "tabOrder": 0}, pos)
 
     def kpi(self, field: dict, pos: tuple[int, int, int, int] | None = None) -> dict:
         """A KPI card on a single measure (or aggregated column)."""
-        return self._add(_card_visual(field, self.board.table,
-                                      measure_table=self.board.measure_table,
-                                      measure_alias=self.board.measure_alias),
-                         pos)
+        return self._add(
+            _card_visual(
+                field,
+                self.board.table,
+                measure_table=self.board.measure_table,
+                measure_alias=self.board.measure_alias,
+            ),
+            pos,
+        )
 
-    def chart(self, visual_type: str, axis: dict, value: dict,
-              pos: tuple[int, int, int, int] | None = None) -> dict:
+    def chart(
+        self,
+        visual_type: str,
+        axis: dict,
+        value: dict,
+        pos: tuple[int, int, int, int] | None = None,
+    ) -> dict:
         """A chart (lineChart / clusteredColumnChart)."""
-        return self._add(_chart_visual(visual_type, axis, value, self.board.table,
-                                       measure_table=self.board.measure_table,
-                                       measure_alias=self.board.measure_alias),
-                         pos)
+        return self._add(
+            _chart_visual(
+                visual_type,
+                axis,
+                value,
+                self.board.table,
+                measure_table=self.board.measure_table,
+                measure_alias=self.board.measure_alias,
+            ),
+            pos,
+        )
 
-    def table(self, fields: list[dict],
-              pos: tuple[int, int, int, int] | None = None) -> dict:
+    def table(
+        self, fields: list[dict], pos: tuple[int, int, int, int] | None = None
+    ) -> dict:
         """A table from a list of fields."""
-        return self._add(_table_visual(fields, self.board.table,
-                                       measure_table=self.board.measure_table,
-                                       measure_alias=self.board.measure_alias),
-                         pos)
+        return self._add(
+            _table_visual(
+                fields,
+                self.board.table,
+                measure_table=self.board.measure_table,
+                measure_alias=self.board.measure_alias,
+            ),
+            pos,
+        )
 
     def filters(self, columns: list[str]) -> None:
         """Add page-level filters on columns (Categorical)."""
@@ -211,8 +283,7 @@ class Board:
         measure_table: the measures table (optional; measures alias "s").
     """
 
-    def __init__(self, table: str = "fact_table",
-                 measure_table: str | None = None):
+    def __init__(self, table: str = "fact_table", measure_table: str | None = None):
         self.table = table
         self.measure_table = measure_table
         self.measure_alias = "s" if measure_table else None
@@ -223,9 +294,15 @@ class Board:
         self._name_counter += 1
         return self._name_counter
 
-    def add_page(self, name: str, title: str | None = None,
-                 width: int = 1280, height: int = 800,
-                 cols: int = 2, row_h: int = 320) -> PageView:
+    def add_page(
+        self,
+        name: str,
+        title: str | None = None,
+        width: int = 1280,
+        height: int = 800,
+        cols: int = 2,
+        row_h: int = 320,
+    ) -> PageView:
         """Add a page and return its view for populating with elements."""
         page = PageView(self, name, title, width, height, cols, row_h)
         self.pages.append(page)
@@ -239,13 +316,13 @@ class Board:
         """Assemble the layout format of .pbix for rebuild_pbix(layout=...)."""
         return _layout_from_report(self.build_report(), base_layout)
 
-    def rebuild(self, src: Path, out: Path,
-                base_layout: dict | None = None) -> Path:
+    def rebuild(self, src: Path, out: Path, base_layout: dict | None = None) -> Path:
         """Fold the board into a binary .pbix (layout replaced, DataModel from src).
 
         Requires `agentic_bi.rebuild.rebuild_pbix` and an existing donor `src`.
         """
         from agentic_bi.rebuild import rebuild_pbix
+
         return rebuild_pbix(src, out, layout=self.layout(base_layout))
 
     def visuals(self) -> list[dict]:

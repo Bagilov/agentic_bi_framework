@@ -9,6 +9,7 @@ Windows otherwise.
         --template templates/template.pbix --datamodel model.abf \
         --out output_files/test_build.pbix --report output_files/test_build.json
 """
+
 from __future__ import annotations
 
 import sys

@@ -14,23 +14,35 @@ The palette and fonts are **organization-agnostic neutrals**: replace them with
 your own design tokens (here or via ``brand_config.yaml``) to enforce a real
 corporate style.
 """
+
 from __future__ import annotations
 
-from agentic_bi.brand_palette import (  # noqa: F401
-    ColorSpec,
-    PALETTE_ADDITIONAL,
-    PALETTE_PRIMARY,
+from agentic_bi.brand_eval import (  # noqa: F401
+    background_findings,
+    check_brand_compliance,
+    color_catalog,
+    contrast_ratio,
+    element_findings,
+    evaluate_theme,
+    font_family_findings,
+    is_brand_font,
+    is_fallback,
 )
 from agentic_bi.brand_fonts import (  # noqa: F401
     BRAND_ITALIC,
     BRAND_WEIGHTS,
     EMBEDDED_BRAND_FONTS,
-    FONTS,
     FONT_DIR,
     FONT_FILES,
+    FONTS,
     FontSpec,
     font_catalog,
     font_files,
+)
+from agentic_bi.brand_palette import (  # noqa: F401
+    PALETTE_ADDITIONAL,
+    PALETTE_PRIMARY,
+    ColorSpec,
 )
 from agentic_bi.brand_rules import (  # noqa: F401
     ALLOWED_WEIGHTS,
@@ -45,17 +57,6 @@ from agentic_bi.brand_rules import (  # noqa: F401
     Finding,
     rule_catalog,
     rules_by_category,
-)
-from agentic_bi.brand_eval import (  # noqa: F401
-    background_findings,
-    check_brand_compliance,
-    color_catalog,
-    contrast_ratio,
-    element_findings,
-    evaluate_theme,
-    font_family_findings,
-    is_brand_font,
-    is_fallback,
 )
 
 __all__ = [

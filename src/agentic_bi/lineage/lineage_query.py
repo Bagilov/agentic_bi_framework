@@ -1,4 +1,5 @@
 """Query/introspection helpers over the parsed lineage (counts, DataFrames)."""
+
 from __future__ import annotations
 
 import logging
@@ -33,12 +34,14 @@ class QueryMixin:
             for v in p.visuals:
                 etypes[v.visual_type] += 1
                 colors |= v.colors
-            result.append({
-                "page": p.name,
-                "elements": dict(etypes),
-                "n_elements": sum(etypes.values()),
-                "colors": sorted(colors),
-            })
+            result.append(
+                {
+                    "page": p.name,
+                    "elements": dict(etypes),
+                    "n_elements": sum(etypes.values()),
+                    "colors": sorted(colors),
+                }
+            )
         return result
 
     @property
@@ -67,8 +70,8 @@ class QueryMixin:
     def _visual_brand(self, v: Visual) -> dict:
         """Brand metrics of a single visual (uses the class config)."""
         return visual_brand_metrics(
-            {"colors": sorted(v.colors), "fonts": sorted(v.fonts)},
-            self._brand_cfg)
+            {"colors": sorted(v.colors), "fonts": sorted(v.fonts)}, self._brand_cfg
+        )
 
     def brand_metrics(self) -> dict:
         """Brand-book metrics by page (fonts/colors) + summary.
@@ -81,11 +84,17 @@ class QueryMixin:
             return self._brand_cache
         analysis = {a["page"]: a for a in self.page_analysis()}
         try:
-            audit = brand_audit_pages([
-                {"name": p.name,
-                 "colors": list(analysis.get(p.name, {}).get("colors", [])),
-                 "fonts": self._collect_visual_fonts(p)}
-                for p in self.pages], self._brand_cfg)
+            audit = brand_audit_pages(
+                [
+                    {
+                        "name": p.name,
+                        "colors": list(analysis.get(p.name, {}).get("colors", [])),
+                        "fonts": self._collect_visual_fonts(p),
+                    }
+                    for p in self.pages
+                ],
+                self._brand_cfg,
+            )
             self._brand_cache = {
                 "summary": audit["summary"],
                 "pages": {r["name"]: r["metrics"] for r in audit["pages"]},
@@ -104,17 +113,19 @@ class QueryMixin:
             m = brand.get(p.name, {})
             fnt = m.get("fonts", {})
             col = m.get("colors", {})
-            rows.append({
-                "PageIdx": p.index,
-                "Page": p.name,
-                "Visuals": len(p.visuals),
-                "BoundTables": ", ".join(sorted(p.tables)),
-                "BindingCount": sum(len(v.bindings) for v in p.visuals),
-                "BrandFontsPct": fnt.get("compliance"),
-                "BrandColorsPct": col.get("compliance"),
-                "BrandHasRed": col.get("has_red"),
-                "BrandStatus": _brand_level_ru(m.get("level")),
-            })
+            rows.append(
+                {
+                    "PageIdx": p.index,
+                    "Page": p.name,
+                    "Visuals": len(p.visuals),
+                    "BoundTables": ", ".join(sorted(p.tables)),
+                    "BindingCount": sum(len(v.bindings) for v in p.visuals),
+                    "BrandFontsPct": fnt.get("compliance"),
+                    "BrandColorsPct": col.get("compliance"),
+                    "BrandHasRed": col.get("has_red"),
+                    "BrandStatus": _brand_level_ru(m.get("level")),
+                }
+            )
         return pd.DataFrame(rows)
 
     @property
@@ -123,18 +134,22 @@ class QueryMixin:
         for p in self.pages:
             for v in p.visuals:
                 m = self._visual_brand(v)
-                rows.append({
-                    "PageIdx": v.page_idx,
-                    "Page": v.page,
-                    "VisualIdx": v.z_index,
-                    "VisualType": v.visual_type,
-                    "Bindings": "; ".join(f"{b.role}={b.query_ref}" for b in v.bindings),
-                    "Tables": ", ".join(sorted(v.tables)),
-                    "BrandFontsPct": (m.get("fonts") or {}).get("compliance"),
-                    "BrandColorsPct": (m.get("colors") or {}).get("compliance"),
-                    "BrandStatus": _brand_level_ru(m.get("level")),
-                    "BrandIssues": "; ".join(m.get("off", []) or []),
-                })
+                rows.append(
+                    {
+                        "PageIdx": v.page_idx,
+                        "Page": v.page,
+                        "VisualIdx": v.z_index,
+                        "VisualType": v.visual_type,
+                        "Bindings": "; ".join(
+                            f"{b.role}={b.query_ref}" for b in v.bindings
+                        ),
+                        "Tables": ", ".join(sorted(v.tables)),
+                        "BrandFontsPct": (m.get("fonts") or {}).get("compliance"),
+                        "BrandColorsPct": (m.get("colors") or {}).get("compliance"),
+                        "BrandStatus": _brand_level_ru(m.get("level")),
+                        "BrandIssues": "; ".join(m.get("off", []) or []),
+                    }
+                )
         return pd.DataFrame(rows)
 
     @property
@@ -142,18 +157,20 @@ class QueryMixin:
         rows = []
         for tbl in self.tables:
             src = self.sources.get(tbl, Source("No Power Query", None))
-            rows.append({
-                "Table": tbl,
-                "Technical": self.is_technical(tbl),
-                "ColumnsCount": len(self.columns.get(tbl, [])),
-                "MeasuresCount": len(self.measures.get(tbl, [])),
-                "CalcColumnsCount": len(self.calc_columns.get(tbl, [])),
-                "HasPowerQuery": tbl in self.power_query,
-                "SourceType": src.type,
-                "Source": src.detail,
-                "SourceStatus": src.status,
-                "SourceError": src.error or "",
-            })
+            rows.append(
+                {
+                    "Table": tbl,
+                    "Technical": self.is_technical(tbl),
+                    "ColumnsCount": len(self.columns.get(tbl, [])),
+                    "MeasuresCount": len(self.measures.get(tbl, [])),
+                    "CalcColumnsCount": len(self.calc_columns.get(tbl, [])),
+                    "HasPowerQuery": tbl in self.power_query,
+                    "SourceType": src.type,
+                    "Source": src.detail,
+                    "SourceStatus": src.status,
+                    "SourceError": src.error or "",
+                }
+            )
         return pd.DataFrame(rows)
 
     def tables_for_page(self, page_name: str) -> set[str]:
@@ -183,4 +200,3 @@ class QueryMixin:
         no silent losses in the visual -> table mapping.
         """
         return sorted(self._unresolved_table_refs)
-

@@ -3,6 +3,7 @@
 Optional dependencies (`requests`/`spnego`) are imported lazily so this module can
 be imported for configuration/introspection without the `server` extra installed.
 """
+
 from __future__ import annotations
 
 import base64
@@ -49,6 +50,7 @@ ITEM_DETAILS = {
     "LinkedReport": ["LinkedReports"],
 }
 
+
 def load_config() -> dict:
     """Load the configuration; on absence/error use defaults."""
     defaults = {
@@ -58,8 +60,15 @@ def load_config() -> dict:
         "roots": ["/Reports"],
         "include_hidden": True,
         "deep_links": [
-            "PowerBIReports", "Reports", "Folders", "Resources",
-            "DataSources", "DataSets", "Subscriptions", "Schedules", "FavoriteItems",
+            "PowerBIReports",
+            "Reports",
+            "Folders",
+            "Resources",
+            "DataSources",
+            "DataSets",
+            "Subscriptions",
+            "Schedules",
+            "FavoriteItems",
         ],
         "output_dir": "output_files/rs_diagnostics",
         "json_prefix": "pbi_rs",
@@ -120,7 +129,9 @@ class NegotiateSession:
     def _new_ctx(self):
         return spnego.client(host=self.host, service="HTTP", protocol="negotiate")
 
-    def request(self, method: str, url: str, params: dict | None = None, **kwargs) -> requests.Response:
+    def request(
+        self, method: str, url: str, params: dict | None = None, **kwargs
+    ) -> requests.Response:
         kwargs.setdefault("timeout", self.timeout)
         ctx = self._new_ctx()
         in_token = None
@@ -136,7 +147,9 @@ class NegotiateSession:
             headers = dict(kwargs.pop("headers", {}))
             if out:
                 headers["Authorization"] = "Negotiate " + base64.b64encode(out).decode()
-            resp = self.session.request(method, url, headers=headers, params=params, **kwargs)
+            resp = self.session.request(
+                method, url, headers=headers, params=params, **kwargs
+            )
             if resp.status_code in (200, 201, 202, 204, 301, 302):
                 return resp
             challenge = resp.headers.get("WWW-Authenticate", "")
@@ -154,5 +167,3 @@ class NegotiateSession:
 
     def post(self, url: str, json_body: dict | None = None) -> requests.Response:
         return self.request("POST", url, json=json_body)
-
-

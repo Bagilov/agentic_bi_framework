@@ -17,10 +17,11 @@ How to manage/change:
 - per project — in YAML ``quality.thresholds.*`` / ``deploy.guardrails.*``;
 - programmatically — ``resolve_thresholds(spec)`` returns effective values.
 """
+
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,9 @@ def _quality_thresholds() -> dict[str, Threshold]:
             unit="problems",
             domain="quality",
             why="validate_pbix compares the layout with the donor model: every problem "
-                "is a reference to a non-existent table/column/measure. Any problem => "
-                "a broken visual on the portal (\"Could not load data\"). Zero is a hard "
-                "gate: do not publish until the layout matches the model.",
+            "is a reference to a non-existent table/column/measure. Any problem => "
+            'a broken visual on the portal ("Could not load data"). Zero is a hard '
+            "gate: do not publish until the layout matches the model.",
             source="agentic_bi.validate_pbix.validate_layout",
         ),
         "quality.min_sections": Threshold(
@@ -61,7 +62,7 @@ def _quality_thresholds() -> dict[str, Threshold]:
             unit="pages",
             domain="quality",
             why="A board must have at least one page; an empty report (0 sections) is "
-                "pointless and may be rejected by the portal.",
+            "pointless and may be rejected by the portal.",
             source="agentic_bi.spec",
         ),
         "quality.min_visuals_per_section": Threshold(
@@ -70,7 +71,7 @@ def _quality_thresholds() -> dict[str, Threshold]:
             unit="visuals",
             domain="quality",
             why="0 = allowed (a placeholder page). Above zero controls the minimum board "
-                "fill. Configured to the customer's requirements.",
+            "fill. Configured to the customer's requirements.",
             source="agentic_bi.quality",
         ),
     }
@@ -85,8 +86,8 @@ def _deploy_thresholds() -> dict[str, Threshold]:
             unit="%",
             domain="deploy",
             why="Guarantee: a deploy must not mass-delete published reports. >50% "
-                "deletions versus the previous state is almost certainly a config/"
-                "branch error. Override only deliberately (--force).",
+            "deletions versus the previous state is almost certainly a config/"
+            "branch error. Override only deliberately (--force).",
             source="sync_client.planner.MAX_DELETION_PCT",
         ),
         "deploy.max_change_pct": Threshold(
@@ -95,8 +96,8 @@ def _deploy_thresholds() -> dict[str, Threshold]:
             unit="%",
             domain="deploy",
             why="Limit of total changes (upload+delete) versus the previous state. "
-                "100% = a full resync is allowed; make it stricter if change volume "
-                "must be controlled.",
+            "100% = a full resync is allowed; make it stricter if change volume "
+            "must be controlled.",
             source="sync_client.planner.MAX_CHANGE_PCT",
         ),
         "deploy.lock_ttl_seconds": Threshold(
@@ -105,8 +106,8 @@ def _deploy_thresholds() -> dict[str, Threshold]:
             unit="sec",
             domain="deploy",
             why="Lifetime of the deploy lock resource. 600s = 10 minutes is enough for "
-                "a typical deploy; parallel deploys from another process will wait or "
-                "time out.",
+            "a typical deploy; parallel deploys from another process will wait or "
+            "time out.",
             source="git-deploy.yaml (sync.lock_ttl_seconds)",
         ),
         "deploy.timeout_seconds": Threshold(
@@ -115,7 +116,7 @@ def _deploy_thresholds() -> dict[str, Threshold]:
             unit="sec",
             domain="deploy",
             why="HTTP request timeout to the Report Server (server.timeout) — protects "
-                "against a hung deploy on a large set of .pbix files.",
+            "against a hung deploy on a large set of .pbix files.",
             source="git-deploy.yaml (server.timeout)",
         ),
     }
@@ -130,8 +131,8 @@ def _build_thresholds() -> dict[str, Threshold]:
             unit="MB",
             domain="build",
             why="Upper limit on the built .pbix size. Data lives entirely in the donor's "
-                "VertiPaq model; exceeding the limit indicates a build anomaly "
-                "(duplicates, layout bloat).",
+            "VertiPaq model; exceeding the limit indicates a build anomaly "
+            "(duplicates, layout bloat).",
             source="agentic_bi.framework",
         ),
         "build.donor_required": Threshold(
@@ -140,8 +141,8 @@ def _build_thresholds() -> dict[str, Threshold]:
             unit="bool",
             domain="build",
             why="The build pattern does not generate VertiPaq from scratch — the binary "
-                "DataModel is taken from a donor. Without a donor you cannot build a "
-                "valid .pbix.",
+            "DataModel is taken from a donor. Without a donor you cannot build a "
+            "valid .pbix.",
             source="agentic_bi.rebuild.rebuild_pbix",
         ),
     }
@@ -200,7 +201,8 @@ def resolve_thresholds(overrides: dict | None = None) -> dict[str, Any]:
 def get_threshold(key: str, overrides: dict | None = None):
     """Return the effective value of a single threshold."""
     return resolve_thresholds(overrides).get(
-        key, THRESHOLDS[key].value if key in THRESHOLDS else None)
+        key, THRESHOLDS[key].value if key in THRESHOLDS else None
+    )
 
 
 def validate_override(key: str, value: Any) -> bool:
@@ -212,6 +214,11 @@ def validate_override(key: str, value: Any) -> bool:
 
 
 __all__ = [
-    "Threshold", "THRESHOLDS", "all_thresholds", "describe", "resolve_thresholds",
-    "get_threshold", "validate_override",
+    "Threshold",
+    "THRESHOLDS",
+    "all_thresholds",
+    "describe",
+    "resolve_thresholds",
+    "get_threshold",
+    "validate_override",
 ]

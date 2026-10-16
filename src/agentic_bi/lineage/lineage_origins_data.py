@@ -3,10 +3,10 @@
 Replace DEFAULT_ORIGINS with your own map (or supply an ``origins.yaml``) to
 adapt lineage to any dashboard without changing code.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
 
 ORIGIN_LEVEL = 0
 ORIGIN_LEVEL_LABEL = "0 · Origin"
@@ -84,9 +84,7 @@ DEFAULT_ORIGINS: list[dict] = [
         "key": "warehouse_pipeline",
         "category": "origin-pipeline",
         "label": "warehouse-pipeline",
-        "detail": (
-            "industrial pipeline that builds the fact/mart source table"
-        ),
+        "detail": ("industrial pipeline that builds the fact/mart source table"),
         "tables": ["dim_registry"],
         "stages": [
             {
@@ -183,5 +181,3 @@ DEFAULT_ORIGINS: list[dict] = [
         ],
     },
 ]
-
-

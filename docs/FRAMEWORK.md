@@ -164,14 +164,15 @@ from agentic_bi.validate_pbix import validate_pbix
 board = Board(table="fact_table", measure_table="kpi_measures")
 p = board.add_page("p1", "Main")
 p.kpi(measure("metric_a", "Metric A"))
-p.chart("lineChart",
-        axis=col("period_start", "Period"),
-        value=measure("metric_b", "Metric B"))
+p.chart(
+    "lineChart",
+    axis=col("period_start", "Period"),
+    value=measure("metric_b", "Metric B"),
+)
 p.table([col("metric", "Metric"), measure("metric_a", "Metric A")])
 p.filters(["category", "metric"])
 
-out = rebuild_pbix(Path("donor.pbix"), Path("out/board.pbix"),
-                   layout=board.layout())
+out = rebuild_pbix(Path("donor.pbix"), Path("out/board.pbix"), layout=board.layout())
 problems = validate_pbix(out)
 assert not problems, problems
 ```
@@ -184,10 +185,12 @@ from agentic_bi.engine import EnginePipeline
 
 pipe = EnginePipeline(template=Path("templates/template.pbix"))
 result = pipe.run(
-    data=Path("sales.csv"), table="Sales", database="SalesDB",
+    data=Path("sales.csv"),
+    table="Sales",
+    database="SalesDB",
     out=Path("out/sales.pbix"),
-    verify=True,          # reverse self-test
-    check_oracle=True,    # strict Desktop open check
+    verify=True,  # reverse self-test
+    check_oracle=True,  # strict Desktop open check
 )
 ```
 

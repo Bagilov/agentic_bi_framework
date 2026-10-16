@@ -4,6 +4,7 @@ Reuses python-pptx (optional). Resolves both direct RGB colors and theme
 (scheme) colors via the presentation theme, traverses groups and tables, and
 emits flat observations with their location.
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,24 +15,42 @@ from agentic_bi.brand_config import BrandConfig, normalize_hex
 logger = logging.getLogger(__name__)
 
 _A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
-_THEME_REL = ("http://schemas.openxmlformats.org/officeDocument/2006/"
-              "relationships/theme")
+_THEME_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 
 # Theme scheme slots (scheme tag -> key)
 _SCHEME_TAGS = {
-    "dk1": "dk1", "lt1": "lt1", "dk2": "dk2", "lt2": "lt2",
-    "accent1": "accent1", "accent2": "accent2", "accent3": "accent3",
-    "accent4": "accent4", "accent5": "accent5", "accent6": "accent6",
-    "hlink": "hlink", "folHlink": "folHlink",
+    "dk1": "dk1",
+    "lt1": "lt1",
+    "dk2": "dk2",
+    "lt2": "lt2",
+    "accent1": "accent1",
+    "accent2": "accent2",
+    "accent3": "accent3",
+    "accent4": "accent4",
+    "accent5": "accent5",
+    "accent6": "accent6",
+    "hlink": "hlink",
+    "folHlink": "folHlink",
 }
 
 # MSO_THEME_COLOR semantic names -> scheme slot
 _THEME_SLOT = {
-    "DARK_1": "dk1", "LIGHT_1": "lt1", "DARK_2": "dk2", "LIGHT_2": "lt2",
-    "TEXT_1": "dk1", "BACKGROUND_1": "lt1", "TEXT_2": "dk2", "BACKGROUND_2": "lt2",
-    "ACCENT_1": "accent1", "ACCENT_2": "accent2", "ACCENT_3": "accent3",
-    "ACCENT_4": "accent4", "ACCENT_5": "accent5", "ACCENT_6": "accent6",
-    "HYPERLINK": "hlink", "FOLLOWED_HYPERLINK": "folHlink",
+    "DARK_1": "dk1",
+    "LIGHT_1": "lt1",
+    "DARK_2": "dk2",
+    "LIGHT_2": "lt2",
+    "TEXT_1": "dk1",
+    "BACKGROUND_1": "lt1",
+    "TEXT_2": "dk2",
+    "BACKGROUND_2": "lt2",
+    "ACCENT_1": "accent1",
+    "ACCENT_2": "accent2",
+    "ACCENT_3": "accent3",
+    "ACCENT_4": "accent4",
+    "ACCENT_5": "accent5",
+    "ACCENT_6": "accent6",
+    "HYPERLINK": "hlink",
+    "FOLLOWED_HYPERLINK": "folHlink",
 }
 
 
@@ -61,6 +80,7 @@ class ThemeResolver:
 
     def _parse(self, blob: bytes) -> None:
         from lxml import etree
+
         try:
             root = etree.fromstring(blob)
         except Exception as exc:  # noqa: BLE001
@@ -105,7 +125,7 @@ class ThemeResolver:
 class Observation:
     """An observation: a color/font with a location and context."""
 
-    kind: str          # text_color|fill|line|background|font|font_weight|font_size
+    kind: str  # text_color|fill|line|background|font|font_weight|font_size
     value: str
     location: str
     context: str = ""
@@ -128,8 +148,9 @@ def color_hex(color_format, theme: ThemeResolver) -> tuple[str, bool]:
     return "", False
 
 
-def iter_pptx_observations(prs, cfg: BrandConfig,
-                           theme: ThemeResolver) -> list[Observation]:
+def iter_pptx_observations(
+    prs, cfg: BrandConfig, theme: ThemeResolver
+) -> list[Observation]:
     """Collect all observations from the presentation (including groups and tables)."""
     obs: list[Observation] = []
     for si, slide in enumerate(prs.slides, start=1):
@@ -161,8 +182,9 @@ def _is_placeholder(shape) -> bool:
         return False
 
 
-def _shape_observations(shape, page: str, cfg: BrandConfig,
-                        theme: ThemeResolver) -> list[Observation]:
+def _shape_observations(
+    shape, page: str, cfg: BrandConfig, theme: ThemeResolver
+) -> list[Observation]:
     """Observations for one shape (recursively into groups)."""
     obs: list[Observation] = []
     name = shape.name or str(shape.shape_type)
@@ -179,7 +201,8 @@ def _shape_observations(shape, page: str, cfg: BrandConfig,
 
     # layout placeholders: do not check fill/line (inherited from the master)
     skip_style = _is_placeholder(shape) and cfg.audit.get(
-        "ignore_layout_placeholders", True)
+        "ignore_layout_placeholders", True
+    )
 
     if not skip_style and cfg.audit.get("check_fill_color", True):
         obs.extend(_paint_observations(shape, "fill", loc, theme))
@@ -192,13 +215,17 @@ def _shape_observations(shape, page: str, cfg: BrandConfig,
         if getattr(shape, "has_table", False):
             for ri, row in enumerate(shape.table.rows):
                 for ci, cell in enumerate(row.cells):
-                    obs.extend(_textframe_observations(
-                        cell.text_frame, f"{loc} / table[{ri}][{ci}]", cfg, theme))
+                    obs.extend(
+                        _textframe_observations(
+                            cell.text_frame, f"{loc} / table[{ri}][{ci}]", cfg, theme
+                        )
+                    )
     return obs
 
 
-def _paint_observations(shape, kind: str, loc: str,
-                        theme: ThemeResolver) -> list[Observation]:
+def _paint_observations(
+    shape, kind: str, loc: str, theme: ThemeResolver
+) -> list[Observation]:
     try:
         if kind == "fill":
             fill = shape.fill
@@ -215,8 +242,9 @@ def _paint_observations(shape, kind: str, loc: str,
     return []
 
 
-def _textframe_observations(tf, loc: str, cfg: BrandConfig,
-                            theme: ThemeResolver) -> list[Observation]:
+def _textframe_observations(
+    tf, loc: str, cfg: BrandConfig, theme: ThemeResolver
+) -> list[Observation]:
     obs: list[Observation] = []
     if tf is None:
         return obs
@@ -226,7 +254,9 @@ def _textframe_observations(tf, loc: str, cfg: BrandConfig,
             if cfg.audit.get("check_text_color", True):
                 h, t = color_hex(run.font.color, theme)
                 if h:
-                    obs.append(Observation("text_color", h, f"{rloc} / text", from_theme=t))
+                    obs.append(
+                        Observation("text_color", h, f"{rloc} / text", from_theme=t)
+                    )
             if cfg.rules.get("check_fonts", True):
                 fname = run.font.name
                 if fname:
@@ -234,7 +264,9 @@ def _textframe_observations(tf, loc: str, cfg: BrandConfig,
                     obs.append(Observation("font_weight", fname, f"{rloc} / weight"))
                     if cfg.audit.get("check_font_size", False) and run.font.size:
                         size = round(run.font.size.pt, 1)
-                        obs.append(Observation("font_size", str(size), f"{rloc} / size"))
+                        obs.append(
+                            Observation("font_size", str(size), f"{rloc} / size")
+                        )
     return obs
 
 

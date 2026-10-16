@@ -1,7 +1,8 @@
 """Shared color helpers for brand-theme evaluation."""
+
 from __future__ import annotations
 
-from agentic_bi.brand_palette import PALETTE_PRIMARY, PALETTE_ADDITIONAL, ColorSpec
+from agentic_bi.brand_palette import PALETTE_ADDITIONAL, PALETTE_PRIMARY, ColorSpec
 
 _ALL_HEX: dict[str, ColorSpec] = {
     c.hex.lower(): c for c in (*PALETTE_PRIMARY, *PALETTE_ADDITIONAL)
@@ -58,4 +59,3 @@ def _primary_count(theme: dict) -> int:
     """Number of unique theme colors in the primary range."""
     primary = {c.hex.lower() for c in PALETTE_PRIMARY}
     return sum(1 for c in theme.values() if _hex_norm(c) in primary)
-

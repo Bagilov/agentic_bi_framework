@@ -18,6 +18,7 @@ Examples:
 
 Exit code is non-zero if the visual check or a critical verification fails.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,7 @@ import zipfile
 from pathlib import Path
 
 from agentic_bi import engine_container, engine_layout, engine_verify, visual_check
-from agentic_bi.engine import DEFAULT_TEMPLATE, EnginePipeline, PBI_RS
+from agentic_bi.engine import DEFAULT_TEMPLATE, PBI_RS, EnginePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,11 @@ def registry_from_spec(spec: dict) -> dict:
     return {
         t["name"]: {
             "columns": [c["name"] for c in t["columns"]],
-            "measures": [m["name"] for m in spec.get("measures", [])
-                         if m.get("table") == t["name"]],
+            "measures": [
+                m["name"]
+                for m in spec.get("measures", [])
+                if m.get("table") == t["name"]
+            ],
         }
         for t in spec["tables"]
     }
@@ -48,8 +52,11 @@ def registry_from_spec(spec: dict) -> dict:
 def copy_members_for(template: Path) -> list[str]:
     """COPY_MEMBERS intersected with the template, minus Layout/DataModel."""
     names = set(zipfile.ZipFile(template).namelist())
-    return [m for m in engine_container.COPY_MEMBERS
-            if m in names and m not in ("Report/Layout", "DataModel")]
+    return [
+        m
+        for m in engine_container.COPY_MEMBERS
+        if m in names and m not in ("Report/Layout", "DataModel")
+    ]
 
 
 def build_layout(spec: dict, mode: str) -> bytes:
@@ -79,17 +86,21 @@ def run(args: argparse.Namespace) -> dict:
     else:
         raise SystemExit(
             "test build needs a DataModel: pass --datamodel <model.abf> on "
-            "non-Windows hosts (the AS engine requires Windows + Power BI Desktop)")
+            "non-Windows hosts (the AS engine requires Windows + Power BI Desktop)"
+        )
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    engine_container.build_container(template, layout, datamodel, out,
-                                     copy_members=copy_members_for(template))
+    engine_container.build_container(
+        template, layout, datamodel, out, copy_members=copy_members_for(template)
+    )
 
-    registry = (json.loads(Path(args.registry).read_text())
-                if args.registry else registry_from_spec(spec))
+    registry = (
+        json.loads(Path(args.registry).read_text())
+        if args.registry
+        else registry_from_spec(spec)
+    )
     visual_errors = visual_check.check_pbix(out, registry)
-    report = engine_verify.verify_pbix(out, spec, model=args.model,
-                                       layout_checks=True)
+    report = engine_verify.verify_pbix(out, spec, model=args.model, layout_checks=True)
 
     result = {
         "out": str(out),
@@ -110,21 +121,32 @@ def run(args: argparse.Namespace) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Build and validate a .pbix test build.",
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("--data", required=True, help="CSV/JSON input")
     ap.add_argument("--table", required=True)
     ap.add_argument("--out", required=True, help="output .pbix")
     ap.add_argument("--template", default=str(DEFAULT_TEMPLATE))
-    ap.add_argument("--datamodel", default=None,
-                    help="prebuilt DataModel (.abf); skips the engine")
-    ap.add_argument("--desktop", default=PBI_RS,
-                    help="Power BI Desktop executable (Windows engine mode)")
+    ap.add_argument(
+        "--datamodel", default=None, help="prebuilt DataModel (.abf); skips the engine"
+    )
+    ap.add_argument(
+        "--desktop",
+        default=PBI_RS,
+        help="Power BI Desktop executable (Windows engine mode)",
+    )
     ap.add_argument("--database", default=None)
     ap.add_argument("--layout", choices=["gallery", "auto"], default="gallery")
-    ap.add_argument("--registry", default=None,
-                    help="JSON model registry; default: derived from the spec")
-    ap.add_argument("--model", action="store_true",
-                    help="also read the model back via pbixray (needs readback)")
+    ap.add_argument(
+        "--registry",
+        default=None,
+        help="JSON model registry; default: derived from the spec",
+    )
+    ap.add_argument(
+        "--model",
+        action="store_true",
+        help="also read the model back via pbixray (needs readback)",
+    )
     ap.add_argument("--report", default=None, help="write the JSON result here")
     args = ap.parse_args()
     if not args.database:

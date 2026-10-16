@@ -1,9 +1,9 @@
 """Lineage value types and small helpers (no heavy dependencies)."""
+
 from __future__ import annotations
 
 import logging
 import re
-from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +17,7 @@ def _load_brand_config(path: str | Path | None):
     ``None`` (the metrics module then uses defaults from brand.py).
     """
     from pathlib import Path as _Path
+
     pkg_dir = _Path(__file__).resolve().parents[1]
     try:
         from agentic_bi.brand_config import BrandConfig
@@ -36,8 +37,12 @@ def _load_brand_config(path: str | Path | None):
 #  Utilities
 # --------------------------------------------------------------------------- #
 def _brand_level_ru(level: str | None) -> str:
-    return {"ok": "compliant", "warning": "warnings",
-            "error": "violation", "unknown": "no data"}.get(level or "", "")
+    return {
+        "ok": "compliant",
+        "warning": "warnings",
+        "error": "violation",
+        "unknown": "no data",
+    }.get(level or "", "")
 
 
 def _split_table_col(query_ref: str) -> tuple[str, str | None]:
@@ -52,7 +57,7 @@ def _strip_agg(token: str) -> str:
     """Strip aggregation wrappers like 'Min(Table.column)' -> 'Table'."""
     m = re.match(r"^(\w+)\(", token)
     if m:
-        inner = token[m.end():]
+        inner = token[m.end() :]
         if inner.endswith(")"):
             return inner[:-1].split(".", 1)[0]
     return token

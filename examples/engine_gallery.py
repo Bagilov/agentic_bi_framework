@@ -9,6 +9,7 @@ The script:
   2. assembles a single "Visual Gallery" page via engine_layout.build_gallery;
   3. validates it (visual_check) and checks the strict Desktop oracle.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -34,8 +35,10 @@ def main() -> int:
     engine_container.build_container(pipe.template, layout, datamodel, OUT)
     print(f"built {OUT} ({OUT.stat().st_size} B)")
 
-    registry = {t["name"]: {"columns": [c["name"] for c in t["columns"]],
-                            "measures": []} for t in spec["tables"]}
+    registry = {
+        t["name"]: {"columns": [c["name"] for c in t["columns"]], "measures": []}
+        for t in spec["tables"]
+    }
     errors = visual_check.check_pbix(OUT, registry)
     print(f"visual_check errors: {len(errors)}")
     for e in errors:

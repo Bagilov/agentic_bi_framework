@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 def _client(server: str, verify: bool = False):
     """Create a requests session with Negotiate authentication (HttpNegotiateAuth)."""
     import requests
+    import urllib3
     from requests_negotiate_sspi import HttpNegotiateAuth
 
-    import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     session = requests.Session()
@@ -63,8 +63,12 @@ def publish_pbix(
     Returns:
         A dict from the response (Id, Name, Path, ...).
     """
-    _cfg_defaults = {"server": "", "base_path": "/reportserver",
-                     "api_prefix": "/api/v2.0", "timeout": 300}
+    _cfg_defaults = {
+        "server": "",
+        "base_path": "/reportserver",
+        "api_prefix": "/api/v2.0",
+        "timeout": 300,
+    }
     if cfg:
         _cfg_defaults.update({k: v for k, v in cfg.items() if v is not None})
     cfg = _cfg_defaults
@@ -110,8 +114,12 @@ def publish_pbix(
         resp = session.post(base_url, json=payload, timeout=timeout)
 
     if resp.status_code in (200, 201, 202, 204):
-        logger.info("Published '%s' to '%s' (HTTP %s)",
-                    server_name, folder_path, resp.status_code)
+        logger.info(
+            "Published '%s' to '%s' (HTTP %s)",
+            server_name,
+            folder_path,
+            resp.status_code,
+        )
         stripped = resp.text.strip()
         if resp.status_code == 204 or not stripped:
             return {"status": resp.status_code, "path": server_path}
@@ -124,14 +132,14 @@ def publish_pbix(
             return data
         except Exception:  # noqa: BLE001
             return {"status": resp.status_code, "text": resp.text[:500]}
-    logger.error("Publish failed: HTTP %s %s",
-                 resp.status_code, resp.text[:500])
+    logger.error("Publish failed: HTTP %s %s", resp.status_code, resp.text[:500])
     return {"status": resp.status_code, "text": resp.text[:500]}
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     import argparse
+
     parser = argparse.ArgumentParser(description="Publish a .pbix to a Report Server")
     parser.add_argument("pbix", help="path to the .pbix file")
     parser.add_argument("--name", required=True, help="report name on the server")
@@ -142,9 +150,14 @@ def main() -> None:
     args = parser.parse_args()
 
     res = publish_pbix(
-        Path(args.pbix), args.name, args.folder,
-        cfg={"server": args.server, "base_path": args.base_path,
-             "api_prefix": args.api_prefix},
+        Path(args.pbix),
+        args.name,
+        args.folder,
+        cfg={
+            "server": args.server,
+            "base_path": args.base_path,
+            "api_prefix": args.api_prefix,
+        },
     )
     print(res)
 

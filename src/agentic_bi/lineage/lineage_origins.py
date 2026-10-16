@@ -103,11 +103,13 @@ def _norm_stages(raw) -> list[dict]:
         stage = str(item.get("stage") or "").strip().lower()
         if stage not in ORIGIN_STAGE_ORDER:
             continue
-        out.append({
-            "stage": stage,
-            "label": str(item.get("label") or ""),
-            "detail": str(item.get("detail") or ""),
-        })
+        out.append(
+            {
+                "stage": stage,
+                "label": str(item.get("label") or ""),
+                "detail": str(item.get("detail") or ""),
+            }
+        )
     out.sort(key=lambda s: ORIGIN_STAGE_ORDER.index(s["stage"]))
     return out
 
@@ -135,26 +137,30 @@ def origin_json_block(origins: list[Origin], source_tables: list[str]) -> dict:
     for sort_idx, o in enumerate(sorted(origins, key=lambda x: _cat_rank(x.category))):
         if not o.tables:
             continue
-        items.append({
-            "key": o.key,
-            "category": o.category,
-            "label": o.label,
-            "detail": o.detail,
-            "tables": list(o.tables),
-            "stages": list(o.stages),
-            "sort": sort_idx,
-        })
+        items.append(
+            {
+                "key": o.key,
+                "category": o.category,
+                "label": o.label,
+                "detail": o.detail,
+                "tables": list(o.tables),
+                "stages": list(o.stages),
+                "sort": sort_idx,
+            }
+        )
 
     if unknown:
-        items.append({
-            "key": "origin-unknown",
-            "category": "origin-unknown",
-            "label": ORIGIN_LABEL["origin-unknown"],
-            "detail": None,
-            "tables": sorted(unknown),
-            "stages": [],
-            "sort": len(items),
-        })
+        items.append(
+            {
+                "key": "origin-unknown",
+                "category": "origin-unknown",
+                "label": ORIGIN_LABEL["origin-unknown"],
+                "detail": None,
+                "tables": sorted(unknown),
+                "stages": [],
+                "sort": len(items),
+            }
+        )
 
     return {
         "level": ORIGIN_LEVEL,

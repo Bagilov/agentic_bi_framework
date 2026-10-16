@@ -35,14 +35,18 @@ def find_plantuml_jar() -> str | None:
     return None
 
 
-def _run(jar: str, args: list[str], stdin_text: str | None = None) -> subprocess.CompletedProcess:
+def _run(
+    jar: str, args: list[str], stdin_text: str | None = None
+) -> subprocess.CompletedProcess:
     """Run the jar with a forced UTF-8 charset (Windows-safe for Unicode)."""
     cmd = [
         "java",
         "-Dfile.encoding=UTF-8",
         "-Dsun.jnu.encoding=UTF-8",
-        "-jar", jar,
-        "-charset", "UTF-8",
+        "-jar",
+        jar,
+        "-charset",
+        "UTF-8",
         *args,
     ]
     if stdin_text is not None:
@@ -80,8 +84,9 @@ def validate_file(puml_path: str | Path, jar: str | None = None) -> tuple[bool, 
     return validate_text(text, jar)
 
 
-def render_png(puml_text: str, out_dir: str | Path,
-               jar: str | None = None) -> Path | None:
+def render_png(
+    puml_text: str, out_dir: str | Path, jar: str | None = None
+) -> Path | None:
     """Render PlantUML to PNG. Returns the generated path or None."""
     jar = jar or find_plantuml_jar()
     if not jar:

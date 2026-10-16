@@ -33,13 +33,27 @@ LEVEL = {
 }
 
 COLUMNS = [
-    "Level", "Layer",
-    "L1 · Origin", "L2 · Source", "L3 · Power Query", "L4 · Table",
-    "L5 · Semantics", "L6 · Page", "L7 · Visual",
-    "Parent", "Type", "Detail / Source", "Refs",
-    "Came from", "Goes to",
-    "Brand · fonts, %", "Brand · colors, %", "Brand · status", "Brand · notes",
+    "Level",
+    "Layer",
+    "L1 · Origin",
+    "L2 · Source",
+    "L3 · Power Query",
+    "L4 · Table",
+    "L5 · Semantics",
+    "L6 · Page",
+    "L7 · Visual",
+    "Parent",
+    "Type",
+    "Detail / Source",
+    "Refs",
+    "Came from",
+    "Goes to",
+    "Brand · fonts, %",
+    "Brand · colors, %",
+    "Brand · status",
+    "Brand · notes",
 ]
+
 
 def _blank_row(level: int) -> dict:
     """A row skeleton for a given level with all level columns empty."""
@@ -95,51 +109,61 @@ def lineage_to_table(data: dict) -> list[dict]:
         stages = it.get("stages", []) or []
         chain = " -> ".join(
             f"{ORIGIN_STAGE_LABEL.get(s.get('stage'), s.get('stage'))}: {s.get('label')}"
-            for s in stages)
+            for s in stages
+        )
         n_targets = sum(1 for t in otables if t in src_by_table)
         detail = it.get("detail") or ""
         if chain:
             detail = f"{chain}\n{detail}" if detail else chain
         row = _blank_row(1)
-        row.update({
-            "L1 · Origin": olabel,
-            "Type": cat,
-            "Detail / Source": detail,
-            "Refs": n_targets,
-            "Goes to": ", ".join(t for t in otables if t in src_by_table),
-        })
+        row.update(
+            {
+                "L1 · Origin": olabel,
+                "Type": cat,
+                "Detail / Source": detail,
+                "Refs": n_targets,
+                "Goes to": ", ".join(t for t in otables if t in src_by_table),
+            }
+        )
         rows.append(row)
 
     # === LEVEL 2: SOURCES ===
     for tbl, s in src_by_table.items():
         refs = tables.get(tbl, {}).get("refs", 0)
         row = _blank_row(2)
-        row.update({
-            "L1 · Origin": src_to_origin.get(tbl, ""),
-            "L2 · Source": tbl,
-            "Parent": src_to_origin.get(tbl, ""),
-            "Type": s.get("type", ""),
-            "Detail / Source": s.get("detail", ""),
-            "Refs": refs,
-            "Came from": src_to_origin.get(tbl, ""),
-            "Goes to": (f"M-query {tbl}" if tables.get(tbl, {}).get("has_power_query")
-                        else f"Table {tbl}"),
-        })
+        row.update(
+            {
+                "L1 · Origin": src_to_origin.get(tbl, ""),
+                "L2 · Source": tbl,
+                "Parent": src_to_origin.get(tbl, ""),
+                "Type": s.get("type", ""),
+                "Detail / Source": s.get("detail", ""),
+                "Refs": refs,
+                "Came from": src_to_origin.get(tbl, ""),
+                "Goes to": (
+                    f"M-query {tbl}"
+                    if tables.get(tbl, {}).get("has_power_query")
+                    else f"Table {tbl}"
+                ),
+            }
+        )
         rows.append(row)
 
     # === LEVEL 3: POWER QUERY ===
     for tbl in sorted(t for t, tv in tables.items() if tv.get("has_power_query")):
         refs = tables.get(tbl, {}).get("refs", 0)
         row = _blank_row(3)
-        row.update({
-            "L2 · Source": tbl,
-            "L3 · Power Query": f"M-query {tbl}",
-            "Parent": tbl,
-            "Type": "Power Query",
-            "Refs": refs,
-            "Came from": f"Source {tbl}",
-            "Goes to": f"Table {tbl}",
-        })
+        row.update(
+            {
+                "L2 · Source": tbl,
+                "L3 · Power Query": f"M-query {tbl}",
+                "Parent": tbl,
+                "Type": "Power Query",
+                "Refs": refs,
+                "Came from": f"Source {tbl}",
+                "Goes to": f"Table {tbl}",
+            }
+        )
         rows.append(row)
 
     # === LEVEL 4: MODEL TABLES ===
@@ -158,18 +182,23 @@ def lineage_to_table(data: dict) -> list[dict]:
         if ncalc:
             detail_parts.append(f"{ncalc} calc")
         row = _blank_row(4)
-        row.update({
-            "L2 · Source": tbl,
-            "L3 · Power Query": f"M-query {tbl}" if tv.get("has_power_query") else "",
-            "L4 · Table": tbl,
-            "Parent": f"M-query {tbl}" if tv.get("has_power_query") else "",
-            "Type": src.get("type") or "business",
-            "Detail / Source": src.get("detail") or ", ".join(detail_parts),
-            "Refs": tv.get("refs", 0),
-            "Came from": (f"M-query {tbl}" if tv.get("has_power_query")
-                          else f"Source {tbl}"),
-            "Goes to": _sem_label(tbl) if semantics.get(tbl) else "",
-        })
+        row.update(
+            {
+                "L2 · Source": tbl,
+                "L3 · Power Query": f"M-query {tbl}"
+                if tv.get("has_power_query")
+                else "",
+                "L4 · Table": tbl,
+                "Parent": f"M-query {tbl}" if tv.get("has_power_query") else "",
+                "Type": src.get("type") or "business",
+                "Detail / Source": src.get("detail") or ", ".join(detail_parts),
+                "Refs": tv.get("refs", 0),
+                "Came from": (
+                    f"M-query {tbl}" if tv.get("has_power_query") else f"Source {tbl}"
+                ),
+                "Goes to": _sem_label(tbl) if semantics.get(tbl) else "",
+            }
+        )
         rows.append(row)
 
     # === LEVEL 5: SEMANTICS ===
@@ -178,16 +207,18 @@ def lineage_to_table(data: dict) -> list[dict]:
         nc = len(sem.get("calc_columns", []))
         using_pages = [p["name"] for p in pages if tbl in p.get("tables", [])]
         row = _blank_row(5)
-        row.update({
-            "L2 · Source": tbl,
-            "L4 · Table": tbl,
-            "L5 · Semantics": _sem_label(tbl),
-            "Parent": tbl,
-            "Type": f"{nm} measures / {nc} calc" if (nm or nc) else "semantics",
-            "Refs": sem.get("table_refs", 0),
-            "Came from": f"Table {tbl}",
-            "Goes to": ", ".join(using_pages) if using_pages else "",
-        })
+        row.update(
+            {
+                "L2 · Source": tbl,
+                "L4 · Table": tbl,
+                "L5 · Semantics": _sem_label(tbl),
+                "Parent": tbl,
+                "Type": f"{nm} measures / {nc} calc" if (nm or nc) else "semantics",
+                "Refs": sem.get("table_refs", 0),
+                "Came from": f"Table {tbl}",
+                "Goes to": ", ".join(using_pages) if using_pages else "",
+            }
+        )
         rows.append(row)
 
     # === LEVEL 6: PAGES ===
@@ -195,17 +226,21 @@ def lineage_to_table(data: dict) -> list[dict]:
         name = p["name"]
         tables_on_page = p.get("tables", [])
         n_vis = p.get("n_visuals", 0)
-        from_label = ", ".join(_sem_label(t) for t in tables_on_page) if tables_on_page else ""
+        from_label = (
+            ", ".join(_sem_label(t) for t in tables_on_page) if tables_on_page else ""
+        )
         row = _blank_row(6)
-        row.update({
-            "L6 · Page": name,
-            "Parent": from_label,
-            "Type": f"{n_vis} visuals" if n_vis else "page",
-            "Detail / Source": ", ".join(tables_on_page),
-            "Refs": p.get("refs", 0),
-            "Came from": from_label,
-            "Goes to": f"visuals ({n_vis})" if n_vis else "",
-        })
+        row.update(
+            {
+                "L6 · Page": name,
+                "Parent": from_label,
+                "Type": f"{n_vis} visuals" if n_vis else "page",
+                "Detail / Source": ", ".join(tables_on_page),
+                "Refs": p.get("refs", 0),
+                "Came from": from_label,
+                "Goes to": f"visuals ({n_vis})" if n_vis else "",
+            }
+        )
         rows.append(row)
 
     # === LEVEL 7: VISUALS ===
@@ -214,19 +249,22 @@ def lineage_to_table(data: dict) -> list[dict]:
             vtype = vis.get("type", "?")
             z = vis.get("z", "")
             bindings = "; ".join(
-                f"{b.get('role')}={b.get('queryRef')}" for b in vis.get("bindings", []))
+                f"{b.get('role')}={b.get('queryRef')}" for b in vis.get("bindings", [])
+            )
             colors = len(vis.get("colors", []))
             row = _blank_row(7)
-            row.update({
-                "L6 · Page": p["name"],
-                "L7 · Visual": f"{p['name']} · {vtype} z={z}",
-                "Parent": p["name"] if p.get("visuals") else "",
-                "Type": vtype,
-                "Detail / Source": bindings,
-                "Refs": vis.get("n_bindings", 0),
-                "Came from": ", ".join(p.get("tables", [])),
-                "Goes to": f"{colors} colors" if colors else "",
-            })
+            row.update(
+                {
+                    "L6 · Page": p["name"],
+                    "L7 · Visual": f"{p['name']} · {vtype} z={z}",
+                    "Parent": p["name"] if p.get("visuals") else "",
+                    "Type": vtype,
+                    "Detail / Source": bindings,
+                    "Refs": vis.get("n_bindings", 0),
+                    "Came from": ", ".join(p.get("tables", [])),
+                    "Goes to": f"{colors} colors" if colors else "",
+                }
+            )
             if vis.get("brand"):
                 row.update(visual_brand_row(vis))
             rows.append(row)
@@ -247,9 +285,12 @@ def lineage_to_table(data: dict) -> list[dict]:
             base["Brand · fonts, %"] = fc if fc is not None else ""
             base["Brand · colors, %"] = cc if cc is not None else ""
             base["Brand · status"] = (
-                "violations" if summary.get("errors")
-                else ("warnings" if summary.get("warnings") else "compliant"))
+                "violations"
+                if summary.get("errors")
+                else ("warnings" if summary.get("warnings") else "compliant")
+            )
             base["Brand · notes"] = (
-                f"pages with deviations: {len(summary.get('off_brand_pages', []))}")
+                f"pages with deviations: {len(summary.get('off_brand_pages', []))}"
+            )
 
     return rows

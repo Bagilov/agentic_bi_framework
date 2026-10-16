@@ -34,9 +34,13 @@ Implementation is split across mixins for readability:
 from __future__ import annotations
 
 import logging
-import zipfile
 from pathlib import Path
 
+from agentic_bi.lineage.lineage_export import ExportMixin
+from agentic_bi.lineage.lineage_model import ModelMixin
+from agentic_bi.lineage.lineage_plantuml import PlantUmlMixin
+from agentic_bi.lineage.lineage_query import QueryMixin
+from agentic_bi.lineage.lineage_sources import SourceMixin
 from agentic_bi.lineage.lineage_types import (  # noqa: F401
     Page,
     Source,
@@ -45,11 +49,6 @@ from agentic_bi.lineage.lineage_types import (  # noqa: F401
     VisualBinding,
     _load_brand_config,
 )
-from agentic_bi.lineage.lineage_model import ModelMixin
-from agentic_bi.lineage.lineage_sources import SourceMixin
-from agentic_bi.lineage.lineage_query import QueryMixin
-from agentic_bi.lineage.lineage_export import ExportMixin
-from agentic_bi.lineage.lineage_plantuml import PlantUmlMixin
 
 logger = logging.getLogger(__name__)
 
@@ -126,26 +125,47 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Build data lineage of a Power BI dashboard (.pbix).\n"
-                    "Process: input .pbix -> output JSON with the analysis structure."
+        "Process: input .pbix -> output JSON with the analysis structure."
     )
     parser.add_argument("pbix", help="path to the .pbix file (input)")
-    parser.add_argument("--json", dest="json_out", default=None,
-                        metavar="OUT.json",
-                        help="output JSON path (default: <out-dir>/lineage.json)")
-    parser.add_argument("--print-json", action="store_true",
-                        help="print the JSON analysis to stdout (instead of saving)")
-    parser.add_argument("--out-dir", default=None,
-                        help="output directory (default: output_files/pbi_lineage)")
-    parser.add_argument("--alias", action="append", default=[],
-                        metavar="DISPLAY=PHYSICAL",
-                        help="display table name -> physical alias (repeatable)")
+    parser.add_argument(
+        "--json",
+        dest="json_out",
+        default=None,
+        metavar="OUT.json",
+        help="output JSON path (default: <out-dir>/lineage.json)",
+    )
+    parser.add_argument(
+        "--print-json",
+        action="store_true",
+        help="print the JSON analysis to stdout (instead of saving)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="output directory (default: output_files/pbi_lineage)",
+    )
+    parser.add_argument(
+        "--alias",
+        action="append",
+        default=[],
+        metavar="DISPLAY=PHYSICAL",
+        help="display table name -> physical alias (repeatable)",
+    )
     parser.add_argument("--no-xlsx", action="store_true", help="do not save Excel")
     parser.add_argument("--no-md", action="store_true", help="do not save Markdown")
     parser.add_argument("--no-json", action="store_true", help="do not save JSON")
-    parser.add_argument("--plantuml", action="store_true",
-                        help="add the PlantUML diagram to the JSON 'plantuml' key")
-    parser.add_argument("--brand-config", default=None, metavar="brand_config.yaml",
-                        help="brand rules config (page compliance metrics)")
+    parser.add_argument(
+        "--plantuml",
+        action="store_true",
+        help="add the PlantUML diagram to the JSON 'plantuml' key",
+    )
+    parser.add_argument(
+        "--brand-config",
+        default=None,
+        metavar="brand_config.yaml",
+        help="brand rules config (page compliance metrics)",
+    )
     args = parser.parse_args()
 
     aliases = {}
@@ -154,8 +174,11 @@ def main():
             k, _, v = a.partition("=")
             aliases[k] = v
 
-    out_dir = Path(args.out_dir) if args.out_dir else (
-        Path(__file__).resolve().parent / "output_files" / "pbi_lineage")
+    out_dir = (
+        Path(args.out_dir)
+        if args.out_dir
+        else (Path(__file__).resolve().parent / "output_files" / "pbi_lineage")
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with PbiLineage(args.pbix, aliases, brand_config=args.brand_config) as lg:
@@ -165,8 +188,9 @@ def main():
             print(_json.dumps(lg.to_json(), ensure_ascii=False, indent=2))
         else:
             if not args.no_json:
-                json_path = (Path(args.json_out) if args.json_out
-                             else out_dir / "lineage.json")
+                json_path = (
+                    Path(args.json_out) if args.json_out else out_dir / "lineage.json"
+                )
                 p = lg.export_json(json_path)
                 print("JSON export:", p)
             lg.print_summary()

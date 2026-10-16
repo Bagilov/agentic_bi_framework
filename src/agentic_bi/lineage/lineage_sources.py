@@ -1,4 +1,5 @@
 """Data-source resolution from Power Query M code (mixin)."""
+
 from __future__ import annotations
 
 import logging
@@ -6,7 +7,7 @@ import os
 import re
 from pathlib import Path
 
-from agentic_bi.lineage.lineage_types import Source, SourceAccessError
+from agentic_bi.lineage.lineage_types import Source
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,11 @@ class SourceMixin:
         try:
             if p.exists() and os.access(p, os.R_OK):
                 return "ok", file_path, ""
-            return "access_error", file_path, f"File does not exist or is inaccessible: {file_path}"
+            return (
+                "access_error",
+                file_path,
+                f"File does not exist or is inaccessible: {file_path}",
+            )
         except OSError as e:
             return "access_error", file_path, f"File access error: {file_path} ({e})"
 
@@ -52,23 +57,32 @@ class SourceMixin:
         silent `Unknown`. The parsed type is always returned even when unavailable.
         """
         if not expr:
-            return Source("Unknown", "?", status="no_power_query",
-                          error="No M code (Power Query) for the table")
+            return Source(
+                "Unknown",
+                "?",
+                status="no_power_query",
+                error="No M code (Power Query) for the table",
+            )
 
         # --- ODBC (including Hive/Impala and others via DSN) ---
         if "Odbc.Query(" in expr:
             m_dsn = re.search(r'Odbc\.Query\("([^"]+)"', expr)
             dsn = m_dsn.group(1) if m_dsn else "?"
-            tables_found = re.findall(r'FROM\s+([\w.]+)', expr, re.IGNORECASE)
-            joins = re.findall(r'JOIN\s+([\w.]+)', expr, re.IGNORECASE)
+            tables_found = re.findall(r"FROM\s+([\w.]+)", expr, re.IGNORECASE)
+            joins = re.findall(r"JOIN\s+([\w.]+)", expr, re.IGNORECASE)
             all_tables = list(dict.fromkeys(tables_found + joins))
             suffix = " / " + ", ".join(all_tables) if all_tables else ""
             path = dsn
             if all_tables:
                 path = f"{dsn} / {', '.join(all_tables)}"
             # ODBC access via DSN cannot be checked statically -> unresolved
-            return Source("ODBC", f"{dsn}{suffix}", status="unresolved",
-                          error="ODBC access check requires a live connection", path=path)
+            return Source(
+                "ODBC",
+                f"{dsn}{suffix}",
+                status="unresolved",
+                error="ODBC access check requires a live connection",
+                path=path,
+            )
 
         # --- SQL Server (Sql.Database / Sql.Databases) ---
         if "Sql.Database(" in expr or "Sql.Databases(" in expr:
@@ -77,38 +91,74 @@ class SourceMixin:
             m_db = re.search(r'Sql\.Database\(\s*"[^"]+"\s*,\s*"([^"]+)"', expr)
             db = m_db.group(1) if m_db else ""
             path = f"{srv} / {db}" if db else srv
-            return Source("SQL Server", path,
-                          status="unresolved", error="Server check requires a live connection", path=path)
+            return Source(
+                "SQL Server",
+                path,
+                status="unresolved",
+                error="Server check requires a live connection",
+                path=path,
+            )
 
         # --- PostgreSQL / Postgre(che) ---
-        if any(k in expr for k in ("PostgreSQL.Database(", "PostgreSql.Database(",
-                                   "Npgsql", "PgSource", "PostgreSource")):
+        if any(
+            k in expr
+            for k in (
+                "PostgreSQL.Database(",
+                "PostgreSql.Database(",
+                "Npgsql",
+                "PgSource",
+                "PostgreSource",
+            )
+        ):
             m_srv = re.search(r'\.Database\(\s*"([^"]+)"', expr)
             srv = m_srv.group(1) if m_srv else "?"
-            return Source("PostgreSQL", srv,
-                          status="unresolved", error="Server check requires a live connection")
+            return Source(
+                "PostgreSQL",
+                srv,
+                status="unresolved",
+                error="Server check requires a live connection",
+            )
 
         # --- MySQL / MariaDB ---
-        if any(k in expr for k in ("MySql.Data", "MySql."
-                                    "Database", "MySql", "MariaDB")):
-            m_conn = re.search(r'MySql\.Data\.MySqlClient\.MySqlConnection\("([^"]+)"', expr)
+        if any(k in expr for k in ("MySql.Data", "MySql.Database", "MySql", "MariaDB")):
+            m_conn = re.search(
+                r'MySql\.Data\.MySqlClient\.MySqlConnection\("([^"]+)"', expr
+            )
             conn = m_conn.group(1) if m_conn else "?"
-            return Source("MySQL", conn,
-                          status="unresolved", error="Server check requires a live connection")
+            return Source(
+                "MySQL",
+                conn,
+                status="unresolved",
+                error="Server check requires a live connection",
+            )
 
         # --- Oracle ---
-        if any(k in expr for k in ("Oracle.Database", "OracleDataAccess",
-                                   "Oracle.ManagedDataAccess", "Odp.Net")):
+        if any(
+            k in expr
+            for k in (
+                "Oracle.Database",
+                "OracleDataAccess",
+                "Oracle.ManagedDataAccess",
+                "Odp.Net",
+            )
+        ):
             m_conn = re.search(r'Oracle\.Database\(\s*"([^"]+)"', expr)
             conn = m_conn.group(1) if m_conn else "?"
-            return Source("Oracle", conn,
-                          status="unresolved", error="Server check requires a live connection")
+            return Source(
+                "Oracle",
+                conn,
+                status="unresolved",
+                error="Server check requires a live connection",
+            )
 
         # --- Hive/Impala via ODBC/emulator ---
-        if any(k in expr for k in ("Hive.Query(", "Impala", "Spark.SQL",
-                                   "CDP", "HDP")):
-            return Source("Hive", "Hive/Impala via connector",
-                          status="unresolved", error="Cluster check requires a live connection")
+        if any(k in expr for k in ("Hive.Query(", "Impala", "Spark.SQL", "CDP", "HDP")):
+            return Source(
+                "Hive",
+                "Hive/Impala via connector",
+                status="unresolved",
+                error="Cluster check requires a live connection",
+            )
 
         # --- Power Query (M) functions for flat files (with an access check) ---
         if "Excel.Workbook(" in expr or "Excel.Worksheet(" in expr:
@@ -130,7 +180,11 @@ class SourceMixin:
         if "Binary.Decompress" in expr or "Binary.FromText" in expr:
             return Source("Embedded", "data embedded in M code")
 
-        return Source("Unknown", "?", status="unresolved",
-                      error="Source type not recognized in M code")
+        return Source(
+            "Unknown",
+            "?",
+            status="unresolved",
+            error="Source type not recognized in M code",
+        )
 
     # ---------------- helper for service tables ----------------

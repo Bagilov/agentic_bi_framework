@@ -47,13 +47,14 @@ def _default_content_types(parts: list[str]) -> str:
     for part in parts:
         if part in override_map:
             ct = override_map[part]
-            attr = f' {ct}' if ct else ""
+            attr = f" {ct}" if ct else ""
             if f'PartName="{part}"' not in "\n".join(lines):
                 lines.append(f'  <Override PartName="{part}"{attr} />')
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
-        + "\n".join(lines) + "\n</Types>"
+        + "\n".join(lines)
+        + "\n</Types>"
     )
 
 
@@ -72,8 +73,9 @@ def _extract_layout(src: Path) -> tuple[dict, str]:
     raise ValueError("Could not decode the source Report/Layout")
 
 
-def _new_layout(display_name: str, table: str, col: str, measure: str,
-                base_layout: dict) -> dict:
+def _new_layout(
+    display_name: str, table: str, col: str, measure: str, base_layout: dict
+) -> dict:
     """Build a layout with a single visual referencing the source model."""
     layout = dict(base_layout)
     layout["sections"] = [
@@ -84,28 +86,56 @@ def _new_layout(display_name: str, table: str, col: str, measure: str,
             "ordinal": 0,
             "visualContainers": [
                 {
-                    "x": 20, "y": 20, "z": 0, "width": 400, "height": 300,
-                    "config": json.dumps({
-                        "name": "visual1",
-                        "layouts": [{"id": 0, "position": {
-                            "x": 20, "y": 20, "width": 400, "height": 300, "z": 0}}],
-                        "singleVisual": {
-                            "visualType": "clusteredColumnChart",
-                            "objects": {},
-                            "prototypeQuery": {
-                                "Version": 2,
-                                "From": [{"Name": "e", "Entity": table}],
-                                "Select": [
-                                    {"Column": {"Expression": {
-                                        "SourceRef": {"Source": "e"}},
-                                        "Property": col}, "Name": col},
-                                    {"Measure": {"Expression": {
-                                        "MeasureRef": {"Property": measure}}},
-                                        "Name": measure},
-                                ],
+                    "x": 20,
+                    "y": 20,
+                    "z": 0,
+                    "width": 400,
+                    "height": 300,
+                    "config": json.dumps(
+                        {
+                            "name": "visual1",
+                            "layouts": [
+                                {
+                                    "id": 0,
+                                    "position": {
+                                        "x": 20,
+                                        "y": 20,
+                                        "width": 400,
+                                        "height": 300,
+                                        "z": 0,
+                                    },
+                                }
+                            ],
+                            "singleVisual": {
+                                "visualType": "clusteredColumnChart",
+                                "objects": {},
+                                "prototypeQuery": {
+                                    "Version": 2,
+                                    "From": [{"Name": "e", "Entity": table}],
+                                    "Select": [
+                                        {
+                                            "Column": {
+                                                "Expression": {
+                                                    "SourceRef": {"Source": "e"}
+                                                },
+                                                "Property": col,
+                                            },
+                                            "Name": col,
+                                        },
+                                        {
+                                            "Measure": {
+                                                "Expression": {
+                                                    "MeasureRef": {"Property": measure}
+                                                }
+                                            },
+                                            "Name": measure,
+                                        },
+                                    ],
+                                },
                             },
                         },
-                    }, ensure_ascii=False),
+                        ensure_ascii=False,
+                    ),
                     "filters": "[]",
                     "tabOrder": 0,
                 }
@@ -156,20 +186,31 @@ def rebuild_pbix(
                     # Keep the same encoding as the source — plain UTF-16LE
                     # without BOM (otherwise Desktop/analyzers cannot decode the
                     # layout; the source has no BOM).
-                    utf16 = json.dumps(new_layout, ensure_ascii=False).encode("utf-16-le")
-                    data = b"\xff\xfe" + utf16 if layout_enc == "utf-16be" else \
-                        utf16 if layout_enc == "utf-16le" \
+                    utf16 = json.dumps(new_layout, ensure_ascii=False).encode(
+                        "utf-16-le"
+                    )
+                    data = (
+                        b"\xff\xfe" + utf16
+                        if layout_enc == "utf-16be"
+                        else utf16
+                        if layout_enc == "utf-16le"
                         else json.dumps(new_layout, ensure_ascii=False).encode("utf-8")
+                    )
                 zout.writestr(name, data)
 
-    logger.info("Rebuilt .pbix: %s (%d parts, %.1f KB)",
-                out, len(names), out.stat().st_size / 1024)
+    logger.info(
+        "Rebuilt .pbix: %s (%d parts, %.1f KB)",
+        out,
+        len(names),
+        out.stat().st_size / 1024,
+    )
     return out
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     import argparse
+
     parser = argparse.ArgumentParser(description="Rebuild a .pbix from a donor")
     parser.add_argument("src", help="donor .pbix (DataModel source)")
     parser.add_argument("--out", default="output_files/rebuilt.pbix")

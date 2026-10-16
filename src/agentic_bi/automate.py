@@ -24,8 +24,8 @@ import argparse
 import logging
 from pathlib import Path
 
-from agentic_bi.rebuild import rebuild_pbix
 from agentic_bi.publish import publish_pbix
+from agentic_bi.rebuild import rebuild_pbix
 from agentic_bi.skeleton import build_skeleton
 
 logger = logging.getLogger(__name__)
@@ -55,12 +55,15 @@ def verify_published(
     Returns:
         A dict with Id/Path/Size or {"exists": False}.
     """
-    from requests_negotiate_sspi import HttpNegotiateAuth
     import requests
     import urllib3
+    from requests_negotiate_sspi import HttpNegotiateAuth
+
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    server_path = f"{folder_path.rstrip('/')}/{report_name.strip().removesuffix('.pbix')}"
+    server_path = (
+        f"{folder_path.rstrip('/')}/{report_name.strip().removesuffix('.pbix')}"
+    )
     session = requests.Session()
     session.verify = False
     session.auth = HttpNegotiateAuth()
@@ -103,14 +106,16 @@ def run(
 
     # 1. Build
     logger.info("Building .pbix from donor %s", src)
-    out = rebuild_pbix(src, out, display_name=display_name,
-                       table=table, col=col, measure=measure)
+    out = rebuild_pbix(
+        src, out, display_name=display_name, table=table, col=col, measure=measure
+    )
     result["built"] = {"path": str(out), "size": out.stat().st_size}
     logger.info("Built .pbix: %s (%.1f KB)", out, out.stat().st_size / 1024)
 
     # 2. Structure validation (optional in dry-run — not a hard failure)
     try:
         from agentic_bi.lineage.pbi_lineage import PbiLineage
+
         with PbiLineage(str(out)) as lg:
             lineage = lg.to_json()
             pages = len(lineage.get("pages", []))
@@ -119,10 +124,12 @@ def run(
                 "sources": len(lineage.get("sources", [])),
                 "tables": len(lineage.get("tables", {})),
             }
-            logger.info("Validation: pages=%s sources=%s tables=%s",
-                        result["validate"]["pages"],
-                        result["validate"]["sources"],
-                        result["validate"]["tables"])
+            logger.info(
+                "Validation: pages=%s sources=%s tables=%s",
+                result["validate"]["pages"],
+                result["validate"]["sources"],
+                result["validate"]["tables"],
+            )
     except Exception as e:  # noqa: BLE001
         result["validate"] = {"error": str(e)}
         logger.warning("Structure validation failed (non-critical): %s", e)
@@ -214,40 +221,74 @@ def run_from_skeleton(
     base = (cfg or {}).get("base_path", "/reportserver")
     api_pref = (cfg or {}).get("api_prefix", "/api/v2.0")
     if server:
-        result["verify"] = verify_published(server, folder, name, base=base, api=api_pref)
+        result["verify"] = verify_published(
+            server, folder, name, base=base, api=api_pref
+        )
     else:
         result["verify"] = {"skipped": "no server configured"}
     return result
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build + publish a .pbix to Report Server")
-    parser.add_argument("--src", default=DEFAULT_SRC, help="donor .pbix (source of truth for DataModel)")
-    parser.add_argument("--out", default=None,
-                        help="where to build the .pbix (default output_files/<name>.pbix)")
-    parser.add_argument("--name", default=DEFAULT_NAME, help="report name on the server (without .pbix)")
-    parser.add_argument("--folder", default=DEFAULT_FOLDER, help="target folder on the server")
-    parser.add_argument("--display", default=DEFAULT_DISPLAY, help="page name in the layout")
-    parser.add_argument("--table", default=DEFAULT_TABLE, help="model table in the layout")
+    parser = argparse.ArgumentParser(
+        description="Build + publish a .pbix to Report Server"
+    )
+    parser.add_argument(
+        "--src", default=DEFAULT_SRC, help="donor .pbix (source of truth for DataModel)"
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="where to build the .pbix (default output_files/<name>.pbix)",
+    )
+    parser.add_argument(
+        "--name", default=DEFAULT_NAME, help="report name on the server (without .pbix)"
+    )
+    parser.add_argument(
+        "--folder", default=DEFAULT_FOLDER, help="target folder on the server"
+    )
+    parser.add_argument(
+        "--display", default=DEFAULT_DISPLAY, help="page name in the layout"
+    )
+    parser.add_argument(
+        "--table", default=DEFAULT_TABLE, help="model table in the layout"
+    )
     parser.add_argument("--col", default=DEFAULT_COL, help="model column in the layout")
-    parser.add_argument("--measure", default=DEFAULT_MEASURE, help="model measure in the layout")
-    parser.add_argument("--dry-run", action="store_true", help="build only, without publishing")
-    parser.add_argument("--skeleton", action="store_true",
-                        help="generate a query-driven skeleton (build_skeleton) instead of a single-visual layout")
+    parser.add_argument(
+        "--measure", default=DEFAULT_MEASURE, help="model measure in the layout"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="build only, without publishing"
+    )
+    parser.add_argument(
+        "--skeleton",
+        action="store_true",
+        help="generate a query-driven skeleton (build_skeleton) instead of a single-visual layout",
+    )
     parser.add_argument("--verbose", action="store_true", help="verbose logging")
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s")
+        format="%(levelname)s: %(message)s",
+    )
 
-    out = Path(args.out) if args.out else \
-        Path(__file__).parent / "output_files" / f"{args.name.strip().removesuffix('.pbix')}.pbix"
+    out = (
+        Path(args.out)
+        if args.out
+        else Path(__file__).parent
+        / "output_files"
+        / f"{args.name.strip().removesuffix('.pbix')}.pbix"
+    )
 
     if args.skeleton:
         res = run_from_skeleton(
-            src=Path(args.src), out=out, name=args.name,
-            folder=args.folder, cfg=None, dry_run=args.dry_run,
+            src=Path(args.src),
+            out=out,
+            name=args.name,
+            folder=args.folder,
+            cfg=None,
+            dry_run=args.dry_run,
         )
     else:
         res = run(
@@ -262,6 +303,7 @@ def main() -> None:
             dry_run=args.dry_run,
         )
     import json
+
     print("\n=== RESULT ===")
     print(json.dumps(res, ensure_ascii=False, indent=2))
 

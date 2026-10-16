@@ -51,11 +51,14 @@ class ReportServerDiagnostics:
         self.cfg = cfg or load_config()
         self.base = self.cfg.get("base_path", "/reportserver")
         self.api = self.cfg.get("api_prefix", "/api/v2.0")
-        self.net = NegotiateSession(host=self.cfg.get("server", ""),
-                                    timeout=self.cfg.get("timeout", 60))
+        self.net = NegotiateSession(
+            host=self.cfg.get("server", ""), timeout=self.cfg.get("timeout", 60)
+        )
         self.include_hidden = bool(self.cfg.get("include_hidden", True))
 
-    def _api_url(self, entity: str, item_id: str | None = None, action: str | None = None) -> str:
+    def _api_url(
+        self, entity: str, item_id: str | None = None, action: str | None = None
+    ) -> str:
         path = f"{self.api}/{entity}"
         if item_id:
             path += f"('{item_id}')"
@@ -100,7 +103,9 @@ class ReportServerDiagnostics:
 
     def list_all_catalog(self) -> list[dict]:
         """The whole catalog (for entity-set summaries)."""
-        return self._get_values(self._api_url("CatalogItems"), {"$top": 1000, "$select": "*"})
+        return self._get_values(
+            self._api_url("CatalogItems"), {"$top": 1000, "$select": "*"}
+        )
 
     # --- detail by type ---------------------------------------------------
     def item_detail(self, item: dict) -> list[dict]:
@@ -129,7 +134,9 @@ class ReportServerDiagnostics:
         out: dict = {}
         for ent in self.cfg.get("deep_links", []):
             try:
-                vals = self._get_values(self._api_url(ent), {"$top": 500, "$select": "*"})
+                vals = self._get_values(
+                    self._api_url(ent), {"$top": 500, "$select": "*"}
+                )
             except Exception as e:  # noqa: BLE001
                 logger.warning("Entity %s error: %s", ent, e)
                 vals = []
@@ -147,13 +154,29 @@ class ReportServerDiagnostics:
             "root": root,
             "total": len(items),
             "folders": len(folders),
-            "reports_powerbi": sum(1 for it in items if it.get("Type") == "PowerBIReport"),
+            "reports_powerbi": sum(
+                1 for it in items if it.get("Type") == "PowerBIReport"
+            ),
             "reports_ssrs": sum(1 for it in items if it.get("Type") == "Report"),
             "hidden": len(hidden),
-            "hidden_items": [{k: it.get(k) for k in ("Name", "Path", "Type", "Hidden")} for it in hidden],
+            "hidden_items": [
+                {k: it.get(k) for k in ("Name", "Path", "Type", "Hidden")}
+                for it in hidden
+            ],
             "by_type": dict(by_type),
             "reports": [
-                {k: it.get(k) for k in ("Name", "Path", "Type", "Hidden", "Size", "ModifiedDate", "CreatedDate")}
+                {
+                    k: it.get(k)
+                    for k in (
+                        "Name",
+                        "Path",
+                        "Type",
+                        "Hidden",
+                        "Size",
+                        "ModifiedDate",
+                        "CreatedDate",
+                    )
+                }
                 for it in reports
             ],
         }
@@ -190,9 +213,15 @@ class ReportServerDiagnostics:
 
     def save(self, root: str, result: dict) -> Path:
         out = result_out_path(root)
-        payload = {"generated_at": result["generated_at"], "root": root,
-                   **{k: v for k, v in result.items() if k != "root"}}
-        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        payload = {
+            "generated_at": result["generated_at"],
+            "root": root,
+            **{k: v for k, v in result.items() if k != "root"},
+        }
+        out.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
         logger.info("JSON saved: %s", out)
         return out
 
@@ -209,8 +238,12 @@ def diag() -> ReportServerDiagnostics:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    p = argparse.ArgumentParser(description="Diagnostics of Power BI Report Server dashboards")
-    p.add_argument("--roots", nargs="*", default=None, help="root catalogs (default from config)")
+    p = argparse.ArgumentParser(
+        description="Diagnostics of Power BI Report Server dashboards"
+    )
+    p.add_argument(
+        "--roots", nargs="*", default=None, help="root catalogs (default from config)"
+    )
     p.add_argument("--no-json", action="store_true", help="do not save JSON results")
     p.add_argument("--filter", default=None, help="filter by catalog name (substring)")
     args = p.parse_args(argv)

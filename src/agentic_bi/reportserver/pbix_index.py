@@ -1,4 +1,5 @@
 """Summary/index building mixin for the Report Server bulk analysis."""
+
 from __future__ import annotations
 
 import json
@@ -15,44 +16,57 @@ class IndexMixin:
         rows = []
         for res in results:
             if "error" in res:
-                rows.append({"root": res.get("root"), "name": res.get("name"),
-                             "path": res.get("path"), "error": res.get("error")})
+                rows.append(
+                    {
+                        "root": res.get("root"),
+                        "name": res.get("name"),
+                        "path": res.get("path"),
+                        "error": res.get("error"),
+                    }
+                )
                 continue
             lin = res.get("lineage", {})
             summary = lin.get("summary", {})
             ap = res.get("antipatterns", {})
             ap_summary = ap.get("summary", {})
             brand = lin.get("brand", {}).get("summary", {}) or {}
-            rows.append({
-                "root": res.get("root", ""),
-                "name": res.get("name"),
-                "path": res.get("path"),
-                "pages": summary.get("pages", 0),
-                "visuals": summary.get("visuals", 0),
-                "tables_total": summary.get("tables", 0),
-                "tables_business": summary.get("business_tables", 0),
-                "measures": summary.get("measures", 0),
-                "calc_columns": summary.get("calc_columns", 0),
-                "power_queries": summary.get("power_queries", 0),
-                "sources": summary.get("sources", 0),
-                "sources_with_data": summary.get("sources_with_data", 0),
-                "antipatterns_total": ap_summary.get("total_findings", 0),
-                "antipatterns_critical": ap_summary.get("critical", 0),
-                "brand_fonts_pct": brand.get("fonts_compliance"),
-                "brand_colors_pct": brand.get("colors_compliance"),
-                "brand_ok_pages": brand.get("ok", 0),
-                "brand_warning_pages": brand.get("warnings", 0),
-                "brand_error_pages": brand.get("errors", 0),
-                "analyzed_at": res.get("analyzed_at"),
-            })
-        return {"generated_at": datetime.now().isoformat(timespec="seconds"),
-                "boards": rows, "n": len(rows)}
+            rows.append(
+                {
+                    "root": res.get("root", ""),
+                    "name": res.get("name"),
+                    "path": res.get("path"),
+                    "pages": summary.get("pages", 0),
+                    "visuals": summary.get("visuals", 0),
+                    "tables_total": summary.get("tables", 0),
+                    "tables_business": summary.get("business_tables", 0),
+                    "measures": summary.get("measures", 0),
+                    "calc_columns": summary.get("calc_columns", 0),
+                    "power_queries": summary.get("power_queries", 0),
+                    "sources": summary.get("sources", 0),
+                    "sources_with_data": summary.get("sources_with_data", 0),
+                    "antipatterns_total": ap_summary.get("total_findings", 0),
+                    "antipatterns_critical": ap_summary.get("critical", 0),
+                    "brand_fonts_pct": brand.get("fonts_compliance"),
+                    "brand_colors_pct": brand.get("colors_compliance"),
+                    "brand_ok_pages": brand.get("ok", 0),
+                    "brand_warning_pages": brand.get("warnings", 0),
+                    "brand_error_pages": brand.get("errors", 0),
+                    "analyzed_at": res.get("analyzed_at"),
+                }
+            )
+        return {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "boards": rows,
+            "n": len(rows),
+        }
 
     # --- main run ---------------------------------------------------------
     def finalize(self, results: list[dict]) -> Path:
         idx = self.report_out / "index.json"
-        idx.write_text(json.dumps(self.build_index(results), ensure_ascii=False, indent=2),
-                       encoding="utf-8")
+        idx.write_text(
+            json.dumps(self.build_index(results), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         return idx
 
     def drill_path(self) -> Path:
@@ -98,8 +112,10 @@ class IndexMixin:
         for res in results:
             if "error" in res:
                 continue
-            all_ids.update((res.get("antipatterns", {}).get("summary", {}) or {})
-                           .get("by_id", {}) or {})
+            all_ids.update(
+                (res.get("antipatterns", {}).get("summary", {}) or {}).get("by_id", {})
+                or {}
+            )
 
         def base(res: dict) -> dict:
             lin = res.get("lineage", {})
@@ -118,10 +134,12 @@ class IndexMixin:
                 "root": res.get("root"),
                 "board_path": res.get("path"),
                 "board_server_path": srv if is_server else None,  # full server path
-                "board_folder": folder,             # placement folder (without the report name)
-                "board_folder_depth": depth,        # folder nesting depth
-                "analyzed_at": res.get("analyzed_at"),   # when the board itself was analyzed
-                "index_built_at": run_at,                # when this drill index was built
+                "board_folder": folder,  # placement folder (without the report name)
+                "board_folder_depth": depth,  # folder nesting depth
+                "analyzed_at": res.get(
+                    "analyzed_at"
+                ),  # when the board itself was analyzed
+                "index_built_at": run_at,  # when this drill index was built
                 "board_pages": summary.get("pages", 0),
                 "board_visuals": summary.get("visuals", 0),
                 "board_tables_total": summary.get("tables", 0),
@@ -143,53 +161,96 @@ class IndexMixin:
 
         for res in results:
             if "error" in res:
-                rows.append({"board": res.get("name"), "root": res.get("root"),
-                             "level": "board", "error": res.get("error"),
-                             "analyzed_at": res.get("analyzed_at"),
-                             "index_built_at": run_at})
+                rows.append(
+                    {
+                        "board": res.get("name"),
+                        "root": res.get("root"),
+                        "level": "board",
+                        "error": res.get("error"),
+                        "analyzed_at": res.get("analyzed_at"),
+                        "index_built_at": run_at,
+                    }
+                )
                 continue
             b = base(res)
             lin = res.get("lineage", {})
             ap = res.get("antipatterns", {})
             # --- sources ---
             for t, s in lin.get("sources", {}).get("by_table", {}).items():
-                rows.append({**b, "level": "source", "element": t,
-                             "source_type": s.get("type"), "source_path": s.get("path"),
-                             "source_detail": s.get("detail"), "status": s.get("status")})
+                rows.append(
+                    {
+                        **b,
+                        "level": "source",
+                        "element": t,
+                        "source_type": s.get("type"),
+                        "source_path": s.get("path"),
+                        "source_detail": s.get("detail"),
+                        "status": s.get("status"),
+                    }
+                )
             # --- tables ---
             for t, tb in lin.get("tables", {}).items():
-                rows.append({**b, "level": "table", "element": t,
-                             "technical": tb.get("technical"),
-                             "columns": tb.get("columns_count", 0),
-                             "measures": tb.get("measures_count", 0),
-                             "source_type": (tb.get("source") or {}).get("type"),
-                             "source_path": (tb.get("source") or {}).get("path"),
-                             "table_refs": tb.get("refs", 0)})
+                rows.append(
+                    {
+                        **b,
+                        "level": "table",
+                        "element": t,
+                        "technical": tb.get("technical"),
+                        "columns": tb.get("columns_count", 0),
+                        "measures": tb.get("measures_count", 0),
+                        "source_type": (tb.get("source") or {}).get("type"),
+                        "source_path": (tb.get("source") or {}).get("path"),
+                        "table_refs": tb.get("refs", 0),
+                    }
+                )
             # --- measures ---
             for t, sem in lin.get("semantics", {}).items():
                 for m in sem.get("measures", []):
                     mname = m.get("name") if isinstance(m, dict) else m
-                    rows.append({**b, "level": "measure", "element": mname,
-                                 "table": t, "measure_refs": m.get("refs") if isinstance(m, dict) else None})
+                    rows.append(
+                        {
+                            **b,
+                            "level": "measure",
+                            "element": mname,
+                            "table": t,
+                            "measure_refs": m.get("refs")
+                            if isinstance(m, dict)
+                            else None,
+                        }
+                    )
             # --- pages ---
             for pg in lin.get("pages", []):
                 bm = pg.get("brand") or {}
-                rows.append({**b, "level": "page", "element": pg.get("name"),
-                             "page_index": pg.get("index"), "page_visuals": pg.get("n_visuals", 0),
-                             "page_refs": pg.get("refs", 0),
-                             "page_tables": ", ".join(pg.get("tables", [])),
-                             "page_brand_fonts": (bm.get("fonts") or {}).get("compliance"),
-                             "page_brand_colors": (bm.get("colors") or {}).get("compliance"),
-                             "page_brand_status": bm.get("level"),
-                             "page_brand_has_red": (bm.get("colors") or {}).get("has_red")})
+                rows.append(
+                    {
+                        **b,
+                        "level": "page",
+                        "element": pg.get("name"),
+                        "page_index": pg.get("index"),
+                        "page_visuals": pg.get("n_visuals", 0),
+                        "page_refs": pg.get("refs", 0),
+                        "page_tables": ", ".join(pg.get("tables", [])),
+                        "page_brand_fonts": (bm.get("fonts") or {}).get("compliance"),
+                        "page_brand_colors": (bm.get("colors") or {}).get("compliance"),
+                        "page_brand_status": bm.get("level"),
+                        "page_brand_has_red": (bm.get("colors") or {}).get("has_red"),
+                    }
+                )
             # --- antipattern findings ---
             for lvl, findings in ap.get("findings", {}).items():
                 for f in findings:
-                    rows.append({**b, "level": f"ap_{f.get('level', lvl)}",
-                                 "element": f.get("scope"),
-                                 "ap_id": f.get("id"), "ap_name": f.get("name"),
-                                 "ap_critical": f.get("critical"),
-                                 "ap_detail": f.get("detail"), "ap_fix": f.get("fix")})
+                    rows.append(
+                        {
+                            **b,
+                            "level": f"ap_{f.get('level', lvl)}",
+                            "element": f.get("scope"),
+                            "ap_id": f.get("id"),
+                            "ap_name": f.get("name"),
+                            "ap_critical": f.get("critical"),
+                            "ap_detail": f.get("detail"),
+                            "ap_fix": f.get("fix"),
+                        }
+                    )
         return rows
 
     # --- drill-down index -------------------------------------------------
@@ -206,5 +267,3 @@ class IndexMixin:
                 except json.JSONDecodeError as e:  # noqa: BLE001
                     logger.warning("skip %s: %s", jf, e)
         return results
-
-

@@ -33,8 +33,7 @@ def _tiles(png_path: Path, content_w: float, content_h: float, styles) -> list:
     if scaled_h <= content_h:
         buffer = io.BytesIO(png_path.read_bytes())
         image.close()
-        return [Image(buffer, width=content_w, height=scaled_h,
-                      hAlign="CENTER")]
+        return [Image(buffer, width=content_w, height=scaled_h, hAlign="CENTER")]
 
     # slice the image into page-height tiles (pixels per page in source space)
     page_h_px = max(1, int(content_h / scale))
@@ -47,8 +46,7 @@ def _tiles(png_path: Path, content_w: float, content_h: float, styles) -> list:
         tile.save(buffer, format="PNG")
         buffer.seek(0)
         tile_h = (bottom - top) * scale
-        flowables.append(Image(buffer, width=content_w, height=tile_h,
-                               hAlign="CENTER"))
+        flowables.append(Image(buffer, width=content_w, height=tile_h, hAlign="CENTER"))
         flowables.append(PageBreak())
         top = bottom
     image.close()
@@ -57,8 +55,13 @@ def _tiles(png_path: Path, content_w: float, content_h: float, styles) -> list:
     return flowables
 
 
-def diagram_story(plantuml: str, content_w: float, content_h: float,
-                  styles, title: str = "Data lineage diagram") -> list:
+def diagram_story(
+    plantuml: str,
+    content_w: float,
+    content_h: float,
+    styles,
+    title: str = "Data lineage diagram",
+) -> list:
     """Render ``plantuml`` and return flowables (one or more pages)."""
     story: list = [Paragraph(title, styles["Heading2"]), Spacer(1, 4 * mm)]
     if not plantuml.strip():
@@ -69,9 +72,12 @@ def diagram_story(plantuml: str, content_w: float, content_h: float,
         png = render_png(plantuml, td)
         if png is None:
             logger.warning("PlantUML rendering unavailable; diagram skipped")
-            story.append(Paragraph(
-                "Diagram not rendered (plantuml.jar / Pillow unavailable).",
-                styles["Body"]))
+            story.append(
+                Paragraph(
+                    "Diagram not rendered (plantuml.jar / Pillow unavailable).",
+                    styles["Body"],
+                )
+            )
             return story
         try:
             story.extend(_tiles(Path(png), content_w, content_h, styles))

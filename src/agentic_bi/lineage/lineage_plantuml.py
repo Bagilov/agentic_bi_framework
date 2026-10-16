@@ -1,16 +1,9 @@
 """PlantUML data-flow diagram generation mixin."""
+
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 
-from agentic_bi.lineage.lineage_brand import brand_label
-from agentic_bi.lineage.lineage_origins import (
-    ORIGIN_COLORS,
-    ORIGIN_LABEL,
-    ORIGIN_STAGE_COLORS,
-    ORIGIN_STAGE_LABEL,
-)
 from agentic_bi.lineage.lineage_types import Source
 
 
@@ -118,7 +111,9 @@ left to right direction
         # --- platforms / Hive by details ---
         if any(k in d for k in ("hive", "hadoop", "impala", "spark")):
             return "Hadoop / Hive"
-        if "odbc" in t or ("dsn=" in d and not any(k in d for k in ("sqlserver", "mssql"))):
+        if "odbc" in t or (
+            "dsn=" in d and not any(k in d for k in ("sqlserver", "mssql"))
+        ):
             return "ODBC"
 
         # --- relational DBs by details ---
@@ -130,12 +125,27 @@ left to right direction
             return "RDBMS (PostgreSQL)"
         if "oracle" in d:
             return "RDBMS (Oracle)"
-        if any(k in d for k in ("teradata", "snowflake", "redshift", "bigquery",
-                                "databricks", "athena", "synapse", "netezza", "vertica")):
+        if any(
+            k in d
+            for k in (
+                "teradata",
+                "snowflake",
+                "redshift",
+                "bigquery",
+                "databricks",
+                "athena",
+                "synapse",
+                "netezza",
+                "vertica",
+            )
+        ):
             return "Columnar DB / Data Lakehouse"
 
         # --- files by details ---
-        if any(k in d for k in ("xlsx", ".xls", "excel", "spreadsheet", "fileserver", "share")):
+        if any(
+            k in d
+            for k in ("xlsx", ".xls", "excel", "spreadsheet", "fileserver", "share")
+        ):
             return "Excel"
         if any(k in d for k in (".csv", "text/csv")):
             return "CSV"
@@ -147,8 +157,19 @@ left to right direction
             return "XML"
 
         # --- HDFS / cloud / embedded / web ---
-        if any(k in d for k in ("hdfs://", "wasbs://", "abfss://", "gs://", "s3://",
-                                "adls", "azure blob", "databricks dbfs")):
+        if any(
+            k in d
+            for k in (
+                "hdfs://",
+                "wasbs://",
+                "abfss://",
+                "gs://",
+                "s3://",
+                "adls",
+                "azure blob",
+                "databricks dbfs",
+            )
+        ):
             return "HDFS / Object Storage"
         if "embedded" in d or "binary.decompress" in d:
             return "Embedded (M code)"
@@ -168,4 +189,5 @@ left to right direction
     def _render_plantuml_from_data(self, data: dict) -> str:
         """Build the PlantUML diagram from the lineage JSON structure (`to_json()`)."""
         from agentic_bi.lineage.lineage_plantuml_render import render_plantuml_from_data
+
         return render_plantuml_from_data(self, data)

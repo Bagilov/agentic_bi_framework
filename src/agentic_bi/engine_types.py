@@ -1,10 +1,17 @@
 """Type inference helpers for the engine data pipeline."""
+
 from __future__ import annotations
 
 import datetime as _dt
 
-_DATE_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
-                 "%d.%m.%Y", "%d.%m.%Y %H:%M:%S", "%Y/%m/%d")
+_DATE_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+    "%d.%m.%Y",
+    "%d.%m.%Y %H:%M:%S",
+    "%Y/%m/%d",
+)
 
 
 def coerce(v):
@@ -51,8 +58,9 @@ def to_iso(v) -> str:
         return v.strftime("%Y-%m-%d")
     for fmt in _DATE_FORMATS:
         try:
-            return _dt.datetime.strptime(
-                str(v).strip(), fmt).strftime("%Y-%m-%dT%H:%M:%S")
+            return _dt.datetime.strptime(str(v).strip(), fmt).strftime(
+                "%Y-%m-%dT%H:%M:%S"
+            )
         except ValueError:
             continue
     return str(v)
@@ -62,15 +70,27 @@ def typed_column(name: str, vals: list) -> dict:
     """Return {name,type,values} with a normalized type."""
     nn = [v for v in vals if v is not None]
     if nn and all(isinstance(v, bool) for v in nn):
-        return {"name": name, "type": "int64",
-                "values": [None if v is None else int(v) for v in vals]}
+        return {
+            "name": name,
+            "type": "int64",
+            "values": [None if v is None else int(v) for v in vals],
+        }
     if nn and all(isinstance(v, int) for v in nn):
         return {"name": name, "type": "int64", "values": vals}
-    if nn and all(isinstance(v, (int, float)) for v in nn) \
-            and not all(is_date(v) for v in nn):
+    if (
+        nn
+        and all(isinstance(v, (int, float)) for v in nn)
+        and not all(is_date(v) for v in nn)
+    ):
         return {"name": name, "type": "double", "values": vals}
     if nn and all(is_date(v) for v in nn):
-        return {"name": name, "type": "date",
-                "values": [None if v is None else to_iso(v) for v in vals]}
-    return {"name": name, "type": "string",
-            "values": [None if v is None else str(v) for v in vals]}
+        return {
+            "name": name,
+            "type": "date",
+            "values": [None if v is None else to_iso(v) for v in vals],
+        }
+    return {
+        "name": name,
+        "type": "string",
+        "values": [None if v is None else str(v) for v in vals],
+    }

@@ -1,4 +1,5 @@
 """Model extraction, report-layout parsing and data-source resolution mixin."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,6 @@ import logging
 import re
 import zipfile
 from collections import Counter, defaultdict
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pbixray import LiveConnectionError, NoEmbeddedModelError, PBIXRay
@@ -33,8 +33,7 @@ class ModelMixin:
             self._model = PBIXRay(str(self.pbix_path))
         except LiveConnectionError as e:
             raise ValueError(
-                "Thin report (no embedded model): "
-                f"{getattr(e, 'database_name', None)}"
+                f"Thin report (no embedded model): {getattr(e, 'database_name', None)}"
             ) from e
         except NoEmbeddedModelError as e:
             raise ValueError("No embedded data model") from e
@@ -116,7 +115,9 @@ class ModelMixin:
     def _resolve_table(self, token: str) -> str | None:
         """Resolve a display/layout name to the physical model table."""
         raw = token.strip()
-        if raw.startswith(tuple(agg + "(" for agg in ("Min", "Max", "Sum", "Avg", "Count"))):
+        if raw.startswith(
+            tuple(agg + "(" for agg in ("Min", "Max", "Sum", "Avg", "Count"))
+        ):
             raw = _strip_agg(raw)
         # strip a possible aggregate suffix of the form 'Table.Column'
         raw = raw.split(".", 1)[0].strip()
@@ -207,28 +208,36 @@ class ModelMixin:
 
         # sources by table
         self.sources: dict[str, Source] = {}
-        self.unresolved_sources: list[dict] = []   # explicit report of unavailable/undetermined
+        self.unresolved_sources: list[
+            dict
+        ] = []  # explicit report of unavailable/undetermined
         for tbl in self.tables:
             expr = self.power_query.get(tbl)
             if expr:
                 src = self._source_from_m(expr)
             else:
-                src = Source("No Power Query", None, status="no_power_query",
-                             error=f"No M code (Power Query) for table {tbl}")
+                src = Source(
+                    "No Power Query",
+                    None,
+                    status="no_power_query",
+                    error=f"No M code (Power Query) for table {tbl}",
+                )
             self.sources[tbl] = src
             if src.status in ("access_error", "unresolved", "no_power_query"):
-                self.unresolved_sources.append({
-                    "table": tbl,
-                    "type": src.type,
-                    "status": src.status,
-                    "detail": src.detail,
-                    "error": src.error,
-                })
+                self.unresolved_sources.append(
+                    {
+                        "table": tbl,
+                        "type": src.type,
+                        "status": src.status,
+                        "detail": src.detail,
+                        "error": src.error,
+                    }
+                )
 
         # --- count references from the visual bindings ---
         # How many times a table/measure/column is used in visuals (board code).
         self.table_refs: Counter = Counter()
-        self.field_refs: Counter = Counter()       # by the whole queryRef
+        self.field_refs: Counter = Counter()  # by the whole queryRef
         for p in self.pages:
             for v in p.visuals:
                 for b in v.bindings:
@@ -242,7 +251,7 @@ class ModelMixin:
         A queryRef of the form 'Table.Name' for columns and 'Name' /
         'Table.Measure' for measures. Returns {measure: count, column: count}.
         """
-        measure_map: dict[str, str] = {}   # displayed -> name
+        measure_map: dict[str, str] = {}  # displayed -> name
         for tbl, names in self.measures.items():
             for n in names:
                 measure_map[f"{tbl}.{n}"] = n

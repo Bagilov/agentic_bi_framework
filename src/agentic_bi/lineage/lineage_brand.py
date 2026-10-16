@@ -39,14 +39,21 @@ from agentic_bi.lineage.lineage_brand_metrics import (  # noqa: F401
     visual_brand_metrics,
 )
 from agentic_bi.lineage.lineage_brand_report import (  # noqa: F401
+    _main,
     audit_json,
     audit_pbix,
     format_report,
 )
-from agentic_bi.lineage.lineage_brand_report import _main
 
-__all__ = ["audit_json", "audit_pbix", "brand_audit_pages", "brand_label",
-           "format_report", "page_brand_metrics", "visual_brand_metrics"]
+__all__ = [
+    "audit_json",
+    "audit_pbix",
+    "brand_audit_pages",
+    "brand_label",
+    "format_report",
+    "page_brand_metrics",
+    "visual_brand_metrics",
+]
 
 
 if __name__ == "__main__":

@@ -62,8 +62,12 @@ def visual_brand_row(visual: dict) -> dict:
         return dict(_EMPTY)
     f, c = m.get("fonts", {}) or {}, m.get("colors", {}) or {}
     return {
-        "Brand · fonts, %": f.get("compliance") if f.get("compliance") is not None else "",
-        "Brand · colors, %": c.get("compliance") if c.get("compliance") is not None else "",
+        "Brand · fonts, %": f.get("compliance")
+        if f.get("compliance") is not None
+        else "",
+        "Brand · colors, %": c.get("compliance")
+        if c.get("compliance") is not None
+        else "",
         "Brand · status": BRAND_LEVEL_LABEL.get(m.get("level", ""), ""),
         "Brand · notes": "; ".join(m.get("off", []) or [])[:200],
     }

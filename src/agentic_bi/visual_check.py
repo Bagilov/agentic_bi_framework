@@ -14,6 +14,7 @@ The role tables follow real Power BI samples (see module docs of
     check_layout(layout, registry) -> list[str]
     check_pbix(pbix, registry) -> list[str]
 """
+
 from __future__ import annotations
 
 import json
@@ -46,14 +47,25 @@ ALLOWED = {
     "kpi": {"Indicator", "TrendLine", "Tooltips"},
 }
 REQUIRED = {
-    "tableEx": ["Values"], "pivotTable": ["Rows"], "card": ["Values"],
-    "slicer": ["Values"], "treemap": ["Group", "Values"],
-    "scatterChart": ["X", "Y"], "gauge": ["Y"], "kpi": ["Indicator"],
-    "columnChart": ["Category", "Y"], "clusteredColumnChart": ["Category", "Y"],
-    "barChart": ["Category", "Y"], "lineChart": ["Category", "Y"],
-    "areaChart": ["Category", "Y"], "pieChart": ["Y"], "donutChart": ["Y"],
-    "funnel": ["Category", "Y"], "waterfallChart": ["Category", "Y"],
-    "stackedColumnChart": ["Category", "Y"], "stackedBarChart": ["Category", "Y"],
+    "tableEx": ["Values"],
+    "pivotTable": ["Rows"],
+    "card": ["Values"],
+    "slicer": ["Values"],
+    "treemap": ["Group", "Values"],
+    "scatterChart": ["X", "Y"],
+    "gauge": ["Y"],
+    "kpi": ["Indicator"],
+    "columnChart": ["Category", "Y"],
+    "clusteredColumnChart": ["Category", "Y"],
+    "barChart": ["Category", "Y"],
+    "lineChart": ["Category", "Y"],
+    "areaChart": ["Category", "Y"],
+    "pieChart": ["Y"],
+    "donutChart": ["Y"],
+    "funnel": ["Category", "Y"],
+    "waterfallChart": ["Category", "Y"],
+    "stackedColumnChart": ["Category", "Y"],
+    "stackedBarChart": ["Category", "Y"],
 }
 
 
@@ -102,30 +114,35 @@ def check_layout(layout: dict, registry: dict) -> list[str]:
             else:
                 for role in proj:
                     if role not in allowed:
-                        errs.append(f"{w}: {vt} role '{role}' not allowed "
-                                    f"(allowed: {sorted(allowed)})")
+                        errs.append(
+                            f"{w}: {vt} role '{role}' not allowed "
+                            f"(allowed: {sorted(allowed)})"
+                        )
                 for role in REQUIRED.get(vt, []):
                     if role not in proj:
                         errs.append(f"{w}: {vt} missing required role '{role}'")
             pq = sv.get("prototypeQuery") or {}
-            alias2ent = {f.get("Name"): f.get("Entity")
-                         for f in (pq.get("From") or [])}
-            names = {s.get("Name") for s in (pq.get("Select") or [])
-                     if isinstance(s, dict)}
+            alias2ent = {f.get("Name"): f.get("Entity") for f in (pq.get("From") or [])}
+            names = {
+                s.get("Name") for s in (pq.get("Select") or []) if isinstance(s, dict)
+            }
             for role, refs in proj.items():
                 for r in refs:
                     qr = r.get("queryRef")
                     if qr not in names:
-                        errs.append(f"{w}: {vt} projection {role} queryRef "
-                                    f"'{qr}' has no matching Select")
-            for sel in (pq.get("Select") or []):
+                        errs.append(
+                            f"{w}: {vt} projection {role} queryRef "
+                            f"'{qr}' has no matching Select"
+                        )
+            for sel in pq.get("Select") or []:
                 if not isinstance(sel, dict):
                     continue
                 for kind in ("Column", "Measure"):
                     if kind in sel:
                         spec = sel[kind]
-                        ent = _resolve(spec.get("Expression", {}).get("SourceRef"),
-                                       alias2ent)
+                        ent = _resolve(
+                            spec.get("Expression", {}).get("SourceRef"), alias2ent
+                        )
                         prop = spec.get("Property")
                         bucket = "measures" if kind == "Measure" else "columns"
                         if ent not in registry:
@@ -135,8 +152,9 @@ def check_layout(layout: dict, registry: dict) -> list[str]:
                 if "Aggregation" in sel:
                     col = (sel["Aggregation"].get("Expression") or {}).get("Column")
                     if col:
-                        ent = _resolve(col.get("Expression", {}).get("SourceRef"),
-                                       alias2ent)
+                        ent = _resolve(
+                            col.get("Expression", {}).get("SourceRef"), alias2ent
+                        )
                         prop = col.get("Property")
                         if ent not in registry:
                             errs.append(f"{w}: {vt} agg table '{ent}' not in model")

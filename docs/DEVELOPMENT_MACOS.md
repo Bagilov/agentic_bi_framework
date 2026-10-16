@@ -142,6 +142,7 @@ Reverse self-test of a `.pbix` against a spec (programmatic):
 
 ```python
 from agentic_bi import engine_verify
+
 report = engine_verify.verify_pbix("out.pbix", spec, model=True)
 print(report.ok(), report.critical_ok(), [c.name for c in report.failures])
 ```
@@ -186,6 +187,7 @@ Gallery of **every** supported visual kind (one page):
 
 ```python
 from agentic_bi import engine_layout
+
 layout = engine_layout.build_gallery(spec, page_name="Visual Gallery")
 ```
 

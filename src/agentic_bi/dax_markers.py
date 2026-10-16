@@ -1,4 +1,5 @@
 """Distortion markers and their scanning for DAX/M analysis."""
+
 from __future__ import annotations
 
 import re
@@ -18,8 +19,9 @@ M_DISTORT_MARKERS = {
     "hardcoded_path": re.compile(
         r"(C:|D:|E:|H:)[\\/]Users|File\.Contents\(\s*[\"']([A-Za-z]:|\\\\)"
     ),
-    "local_now": re.compile(r"DateTime\.LocalNow|DateTime\.FixedLocalNow",
-                            re.IGNORECASE),
+    "local_now": re.compile(
+        r"DateTime\.LocalNow|DateTime\.FixedLocalNow", re.IGNORECASE
+    ),
     "fixed_date": re.compile(r"#date\(\s*\d{4}"),
     "file_share": re.compile(r"\\\\[A-Za-z0-9_.-]+\\[A-Za-z0-9_.-]+"),
 }

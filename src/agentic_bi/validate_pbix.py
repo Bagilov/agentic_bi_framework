@@ -27,8 +27,15 @@ EXAMPLE_REGISTRY: dict = {
         "measures": [],
     },
     "fact_table": {
-        "columns": ["as_of_date", "metric", "entity_id", "segment",
-                    "category", "period", "period_start"],
+        "columns": [
+            "as_of_date",
+            "metric",
+            "entity_id",
+            "segment",
+            "category",
+            "period",
+            "period_start",
+        ],
         "measures": [],
     },
     "dim_type": {"columns": ["category"], "measures": []},
@@ -88,7 +95,8 @@ def validate_layout(layout: dict, registry: dict | None = None) -> list[str]:
         if prop not in ent.get(bucket, []):
             problems.append(
                 f"{where}: {entity}.{prop} is not in the donor "
-                f"({bucket}: {ent.get(bucket) or 'empty'})")
+                f"({bucket}: {ent.get(bucket) or 'empty'})"
+            )
 
     for si, sec in enumerate(layout.get("sections", [])):
         where = f"section[{si}]"
@@ -108,27 +116,29 @@ def validate_layout(layout: dict, registry: dict | None = None) -> list[str]:
                 col = (f.get("expression") or {}).get("Column")
                 if col:
                     ent = _resolve_entity(
-                        col.get("Expression", {}).get("SourceRef"), {})
+                        col.get("Expression", {}).get("SourceRef"), {}
+                    )
                     check_ref(ent, col.get("Property"), "column", f"{vwhere} filter")
 
             # query / prototype query
             cfg = _as_obj(vc.get("config")) or {}
             sv = cfg.get("singleVisual") or {}
             pq = sv.get("prototypeQuery") or _as_obj(vc.get("query")) or {}
-            alias2ent = {f.get("Name"): f.get("Entity")
-                         for f in (pq.get("From") or [])}
+            alias2ent = {f.get("Name"): f.get("Entity") for f in (pq.get("From") or [])}
             for sel in pq.get("Select") or []:
                 if not isinstance(sel, dict):
                     continue
                 if "Measure" in sel:
                     m = sel["Measure"]
-                    ent = _resolve_entity(m.get("Expression", {}).get("SourceRef"),
-                                          alias2ent)
+                    ent = _resolve_entity(
+                        m.get("Expression", {}).get("SourceRef"), alias2ent
+                    )
                     check_ref(ent, m.get("Property"), "measure", vwhere)
                 elif "Column" in sel:
                     c = sel["Column"]
-                    ent = _resolve_entity(c.get("Expression", {}).get("SourceRef"),
-                                          alias2ent)
+                    ent = _resolve_entity(
+                        c.get("Expression", {}).get("SourceRef"), alias2ent
+                    )
                     check_ref(ent, c.get("Property"), "column", vwhere)
                 elif "Aggregation" in sel:
                     spec = sel["Aggregation"]
@@ -136,7 +146,8 @@ def validate_layout(layout: dict, registry: dict | None = None) -> list[str]:
                     col = ex.get("Column") if isinstance(ex, dict) else None
                     if col:
                         ent = _resolve_entity(
-                            col.get("Expression", {}).get("SourceRef"), alias2ent)
+                            col.get("Expression", {}).get("SourceRef"), alias2ent
+                        )
                         check_ref(ent, col.get("Property"), "column", vwhere)
     return problems
 
@@ -144,6 +155,7 @@ def validate_layout(layout: dict, registry: dict | None = None) -> list[str]:
 def validate_pbix(path: Path, registry: dict | None = None) -> list[str]:
     """Extract the layout from a produced .pbix and validate it."""
     from agentic_bi.rebuild import _extract_layout
+
     layout, _ = _extract_layout(Path(path))
     return validate_layout(layout, registry)
 
@@ -151,8 +163,12 @@ def validate_pbix(path: Path, registry: dict | None = None) -> list[str]:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     import sys
-    p = sys.argv[1] if len(sys.argv) > 1 else (
-        Path(__file__).parent / "output_files" / "sample.pbix")
+
+    p = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else (Path(__file__).parent / "output_files" / "sample.pbix")
+    )
     reg = load_registry(sys.argv[2]) if len(sys.argv) > 2 else None
     problems = validate_pbix(Path(p), reg)
     if problems:

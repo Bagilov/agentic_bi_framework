@@ -1,4 +1,5 @@
 """Result types for the document brand audit."""
+
 from __future__ import annotations
 
 import json
@@ -13,11 +14,11 @@ class AuditFinding:
     """A single brand-book non-compliance."""
 
     rule_id: str
-    level: str            # error | warning | info
-    category: str         # color | font | background | element
-    location: str         # e.g. 'slide 3 / shape "Title 1" / run 0'
+    level: str  # error | warning | info
+    category: str  # color | font | background | element
+    location: str  # e.g. 'slide 3 / shape "Title 1" / run 0'
     message: str
-    value: str = ""       # the actual value (hex/font/...)
+    value: str = ""  # the actual value (hex/font/...)
     detail: str = ""
 
     def as_dict(self) -> dict:
@@ -82,11 +83,17 @@ class AuditReport:
         if not self.findings:
             return f"OK: {self.path} - no non-compliances found."
         info = len([f for f in self.findings if f.level == "info"])
-        summary = (f"  total: {len(self.findings)} (error={len(self.errors)}, "
-                   f"warning={len(self.warnings)}, info={info})")
-        lines = [f"Audit: {self.path}", summary,
-                 f"  by category: {self.by_category()}",
-                 f"  by rule: {self.by_rule()}", ""]
+        summary = (
+            f"  total: {len(self.findings)} (error={len(self.errors)}, "
+            f"warning={len(self.warnings)}, info={info})"
+        )
+        lines = [
+            f"Audit: {self.path}",
+            summary,
+            f"  by category: {self.by_category()}",
+            f"  by rule: {self.by_rule()}",
+            "",
+        ]
         shown = self.findings[:max_findings] if max_findings else self.findings
         for f in shown:
             lines.append(f"  [{f.level.upper():7}] {f.rule_id} @ {f.location}")

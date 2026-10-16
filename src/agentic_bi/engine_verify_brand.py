@@ -1,4 +1,5 @@
 """Brand-style comparison of a report theme (`extract_report_theme`, `verify_brand`)."""
+
 from __future__ import annotations
 
 import json
@@ -27,12 +28,14 @@ _ACCENT_TOLERANCE = 20
 def _is_near_brand_accent(hex_color: str) -> bool:
     """Whether a color is close to the primary accent #D32F2F (within tolerance)."""
     try:
-        r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+        r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
     except (ValueError, IndexError):
         return False
-    return (abs(r - _BRAND_ACCENT[0]) <= _ACCENT_TOLERANCE
-            and abs(g - _BRAND_ACCENT[1]) <= _ACCENT_TOLERANCE
-            and abs(b - _BRAND_ACCENT[2]) <= _ACCENT_TOLERANCE)
+    return (
+        abs(r - _BRAND_ACCENT[0]) <= _ACCENT_TOLERANCE
+        and abs(g - _BRAND_ACCENT[1]) <= _ACCENT_TOLERANCE
+        and abs(b - _BRAND_ACCENT[2]) <= _ACCENT_TOLERANCE
+    )
 
 
 def extract_report_theme(pbix: Path) -> dict:
@@ -63,8 +66,14 @@ def extract_report_theme(pbix: Path) -> dict:
         theme_name = layout.get("theme")
         cand = None
         if theme_name:
-            cand = next((n for n in names
-                         if n.endswith(theme_name) and _THEME_MEMBER_RE.match(n)), None)
+            cand = next(
+                (
+                    n
+                    for n in names
+                    if n.endswith(theme_name) and _THEME_MEMBER_RE.match(n)
+                ),
+                None,
+            )
         if cand is None:
             cand = next((n for n in names if _THEME_MEMBER_RE.match(n)), None)
         theme = {}
@@ -89,7 +98,7 @@ def extract_report_theme(pbix: Path) -> dict:
 
     colors: dict[str, str] = {}
     for h in sorted(used_colors, key=lambda k: -used_colors[k]):
-        colors[h] = h          # key = the HEX itself: violation messages stay readable
+        colors[h] = h  # key = the HEX itself: violation messages stay readable
     # if there is a near-accent, record the 'accent' key with the canonical value
     if any(_is_near_brand_accent(h) for h in used_colors):
         colors["accent"] = "#D32F2F"
@@ -118,8 +127,9 @@ def extract_report_theme(pbix: Path) -> dict:
     }
 
 
-def verify_brand(pbix: Path, theme: dict | None = None,
-                 strict: bool = False) -> list[CheckResult]:
+def verify_brand(
+    pbix: Path, theme: dict | None = None, strict: bool = False
+) -> list[CheckResult]:
     """Compare the report theme with the brand style guide (`brand.py`).
 
     Checks fonts (Brand Sans/Text), colors (palette, mandatory accent, at least 2
@@ -137,8 +147,14 @@ def verify_brand(pbix: Path, theme: dict | None = None,
 
     theme = theme if theme is not None else extract_report_theme(pbix)
     if not theme:
-        return [_check("brand: report theme found", False,
-                       "no registered report theme in the .pbix", critical=False)]
+        return [
+            _check(
+                "brand: report theme found",
+                False,
+                "no registered report theme in the .pbix",
+                critical=False,
+            )
+        ]
     report = check_brand_compliance(
         colors=theme.get("colors"),
         fonts=theme.get("fonts"),
@@ -154,9 +170,12 @@ def verify_brand(pbix: Path, theme: dict | None = None,
         return out
     for f in findings:
         critical = bool(strict and f.get("level") == "error")
-        out.append(_check(
-            f"brand: {f.get('rule_id')}", False,
-            f"[{f.get('level')}] {f.get('message')}", critical=critical))
+        out.append(
+            _check(
+                f"brand: {f.get('rule_id')}",
+                False,
+                f"[{f.get('level')}] {f.get('message')}",
+                critical=critical,
+            )
+        )
     return out
-
-

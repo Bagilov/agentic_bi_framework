@@ -35,8 +35,10 @@ def _pbir(display_name: str) -> dict:
     return {
         "version": "1.0",
         "reportConfig": json.dumps(
-            {"config": json.dumps({"theme": "default", "filter": {"filter": None}}),
-             "version": "1.0"},
+            {
+                "config": json.dumps({"theme": "default", "filter": {"filter": None}}),
+                "version": "1.0",
+            },
             ensure_ascii=False,
         ),
     }
@@ -45,22 +47,40 @@ def _pbir(display_name: str) -> dict:
 def _visual_placeholder() -> dict:
     """Placeholder: a card visual with the Count measure (real pbix format)."""
     return {
-        "config": json.dumps({
-            "name": "CountCard",
-            "layouts": [{"id": 0, "position": {
-                "x": 20, "y": 20, "width": 300, "height": 120, "z": 0}}],
-            "singleVisual": {
-                "visualType": "card",
-                "objects": {},
-                "prototypeQuery": {
-                    "Version": 2,
-                    "From": [{"Name": "e", "Entity": "Events"}],
-                    "Select": [{"Measure": {"Expression": {
-                        "MeasureRef": {"Property": "Count"}}},
-                        "Name": "Count"}],
+        "config": json.dumps(
+            {
+                "name": "CountCard",
+                "layouts": [
+                    {
+                        "id": 0,
+                        "position": {
+                            "x": 20,
+                            "y": 20,
+                            "width": 300,
+                            "height": 120,
+                            "z": 0,
+                        },
+                    }
+                ],
+                "singleVisual": {
+                    "visualType": "card",
+                    "objects": {},
+                    "prototypeQuery": {
+                        "Version": 2,
+                        "From": [{"Name": "e", "Entity": "Events"}],
+                        "Select": [
+                            {
+                                "Measure": {
+                                    "Expression": {"MeasureRef": {"Property": "Count"}}
+                                },
+                                "Name": "Count",
+                            }
+                        ],
+                    },
                 },
             },
-        }, ensure_ascii=False),
+            ensure_ascii=False,
+        ),
         "filters": "[]",
         "tabOrder": 0,
     }
@@ -77,7 +97,8 @@ def _report_with_visuals(display_name: str, page_name: str = "Page 1") -> dict:
                 "displayName": display_name,
                 "filters": "[]",
                 "config": json.dumps(
-                    {"width": 1280, "height": 720, "background": {"color": "#FFFFFF"}}),
+                    {"width": 1280, "height": 720, "background": {"color": "#FFFFFF"}}
+                ),
                 "visualContainers": [_visual_placeholder()],
             }
         ],
@@ -95,7 +116,8 @@ def _empty_report(display_name: str, page_name: str = "Page 1") -> dict:
                 "displayName": display_name,
                 "filters": "[]",
                 "config": json.dumps(
-                    {"width": 1280, "height": 720, "background": {"color": "#FFFFFF"}}),
+                    {"width": 1280, "height": 720, "background": {"color": "#FFFFFF"}}
+                ),
                 "visualContainers": [],
             }
         ],
@@ -120,13 +142,20 @@ def _model_bim(tables: list[dict] | None = None) -> dict:
         if "partitions" not in nt:
             cols = nt.get("columns", [])
             datatype_arg = ", ".join(
-                f'"{c["name"]}", STRING' if c.get("dataType") == "string" else
-                f'"{c["name"]}", DOUBLE'
-                for c in cols)
+                f'"{c["name"]}", STRING'
+                if c.get("dataType") == "string"
+                else f'"{c["name"]}", DOUBLE'
+                for c in cols
+            )
             nt["partitions"] = [
-                {"name": f"{t['name']}-1", "mode": "import",
-                 "source": {"type": "calculated",
-                            "expression": f'DATATABLE({datatype_arg}, {{}})'}}
+                {
+                    "name": f"{t['name']}-1",
+                    "mode": "import",
+                    "source": {
+                        "type": "calculated",
+                        "expression": f"DATATABLE({datatype_arg}, {{}})",
+                    },
+                }
             ]
         norm_tables.append(nt)
 
@@ -137,7 +166,8 @@ def _model_bim(tables: list[dict] | None = None) -> dict:
             "culture": "en-US",
             "annotations": [
                 {"name": "DefaultMeasureTable", "value": norm_tables[0]["name"]}
-                if norm_tables else {"name": "DefaultMeasureTable", "value": "Events"},
+                if norm_tables
+                else {"name": "DefaultMeasureTable", "value": "Events"},
                 {"name": "defaultPowerBIDataSourceVersion", "value": "powerBI_V3"},
             ],
             "tables": norm_tables,
@@ -172,8 +202,11 @@ def build_pbip(
     # report
     report_dir = root / f"{name}.Report"
     report_dir.mkdir(exist_ok=True)
-    report = _report_with_visuals(display_name, page_name) if with_visuals \
+    report = (
+        _report_with_visuals(display_name, page_name)
+        if with_visuals
         else _empty_report(display_name, page_name)
+    )
     _write_json(report_dir / "report.json", report)
 
     # semantic model
@@ -198,18 +231,19 @@ def main() -> None:
         {
             "name": "Events",
             "columns": [
-                {"name": "case",   "dataType": "string"},
+                {"name": "case", "dataType": "string"},
                 {"name": "status", "dataType": "string"},
-                {"name": "dur",    "dataType": "decimal"},
+                {"name": "dur", "dataType": "decimal"},
             ],
             "measures": [
-                {"name": "Count",  "expression": "COUNTROWS('Events')"},
+                {"name": "Count", "expression": "COUNTROWS('Events')"},
                 {"name": "AvgDur", "expression": "AVERAGE('Events'[dur])"},
             ],
         }
     ]
-    pbir = build_pbip(out, display_name="Demo: events", tables=tables,
-                      with_visuals=True)
+    pbir = build_pbip(
+        out, display_name="Demo: events", tables=tables, with_visuals=True
+    )
     logger.info("PBIP project created: %s (open it in Power BI Desktop)", pbir)
 
 

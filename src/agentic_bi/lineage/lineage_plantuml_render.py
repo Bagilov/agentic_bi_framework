@@ -1,4 +1,5 @@
 """PlantUML renderer: builds the data-flow diagram from the lineage JSON."""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -31,7 +32,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
     Returns:
         A string with the full PlantUML code (@startuml ... @enduml).
     """
-    ctx._pu_seen = set()   # reset unique ids on each call
+    ctx._pu_seen = set()  # reset unique ids on each call
     ctx._pu_ids = {}
 
     origins = data.get("origin", {})
@@ -47,12 +48,16 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             src_by_group[group].append(it)
 
     # tables with sources (for pq/tables)
-    tables_with_data = [t for t, tbl in tables_json.items() if tbl.get("has_power_query")]
+    tables_with_data = [
+        t for t, tbl in tables_json.items() if tbl.get("has_power_query")
+    ]
     business = [t for t, tbl in tables_json.items() if not tbl.get("technical")]
     pages_with_data = [p for p in pages_json if p.get("tables")]
 
-    out = [ctx._PU_HEADER.format(name=ctx._pu_escape(ctx.pbix_path.stem)),
-           ctx._PU_STYLE.strip()]
+    out = [
+        ctx._PU_HEADER.format(name=ctx._pu_escape(ctx.pbix_path.stem)),
+        ctx._PU_STYLE.strip(),
+    ]
 
     # ---- layer 1: data origin (initial layer) ----
     origin_nodes: dict[str, str] = {}
@@ -74,7 +79,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             nid = ctx._pu_id("O", okey)
             origin_nodes[okey] = nid
             lbl = f"{label}\n{cat_label}" + (f"\n{tail}" if tail else "")
-            out.append(f'  [**{ctx._pu_escape(lbl)}**] as {nid} {color}')
+            out.append(f"  [**{ctx._pu_escape(lbl)}**] as {nid} {color}")
             continue
 
         # nested sub-stage chain: SOURCE -> PROCESSING -> LOAD
@@ -86,11 +91,11 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             slbl = f"{st.get('label') or ''}\n{slab}"
             sid = ctx._pu_id("O", f"{okey}:{stage}:{si}")
             scol = ORIGIN_STAGE_COLORS.get(stage, color)
-            out.append(f'    [**{ctx._pu_escape(slbl)}**] as {sid} {scol}')
+            out.append(f"    [**{ctx._pu_escape(slbl)}**] as {sid} {scol}")
             if prev is not None:
                 out.append(f"    {prev} --> {sid}")
             prev = sid
-        origin_nodes[okey] = prev   # the last sub-stage feeds layer-2 sources
+        origin_nodes[okey] = prev  # the last sub-stage feeds layer-2 sources
         out.append("  }")
     out.append("}")
 
@@ -108,7 +113,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             if refs:
                 label += f"\n{refs} refs"
             nid = ctx._pu_id("S", tbl)
-            out.append(f'    [**{ctx._pu_escape(label)}**] as {nid}')
+            out.append(f"    [**{ctx._pu_escape(label)}**] as {nid}")
         out.append("  }")
     out.append("}")
 
@@ -118,7 +123,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
     for tbl in sorted(tables_with_data):
         nid = ctx._pu_id("PQ", tbl)
         pq_nodes[tbl] = nid
-        out.append(f'  [**M query {ctx._pu_escape(tbl)}**] as {nid}')
+        out.append(f"  [**M query {ctx._pu_escape(tbl)}**] as {nid}")
     out.append("}")
 
     # ---- layer 4: model tables ----
@@ -129,7 +134,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
         t_nodes[tbl] = nid
         refs = tables_json.get(tbl, {}).get("refs", 0)
         label = tbl if not refs else f"{tbl}\n{refs} refs"
-        out.append(f'  [**{ctx._pu_escape(label)}**] as {nid}')
+        out.append(f"  [**{ctx._pu_escape(label)}**] as {nid}")
     out.append("}")
 
     # ---- layer 5: semantics (aggregation by table) + refs ----
@@ -152,7 +157,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             label += f"\n{trefs} refs"
         nid = ctx._pu_id("SEM", tbl)
         sem_nodes[tbl] = nid
-        out.append(f'  [**{ctx._pu_escape(label)}**] as {nid}')
+        out.append(f"  [**{ctx._pu_escape(label)}**] as {nid}")
     out.append("}")
 
     # ---- layer 6: pages ----
@@ -163,7 +168,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
         label = p["name"] if not refs else f"{p['name']}\n{refs} refs"
         nid = ctx._pu_id("P", p["name"])
         page_nodes[p["name"]] = nid
-        out.append(f'  [**{ctx._pu_escape(label)}**] as {nid}')
+        out.append(f"  [**{ctx._pu_escape(label)}**] as {nid}")
     out.append("}")
 
     # ---- layer 7: elements and palette by page ----
@@ -176,8 +181,9 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
         total = p.get("n_visuals", 0)
         colors = p.get("colors", [])
         ncolors = len(colors)
-        top = ", ".join(f"{t}:{c}" for t, c in
-                        sorted(etypes.items(), key=lambda kv: -kv[1])[:5])
+        top = ", ".join(
+            f"{t}:{c}" for t, c in sorted(etypes.items(), key=lambda kv: -kv[1])[:5]
+        )
         label = f"Visuals {total}\n{top}\nColors {ncolors}: "
         label += ", ".join(colors[:6]) + (("…") if ncolors > 6 else "")
         # brand-book compliance metrics (fonts/colors) on the page node
@@ -186,7 +192,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             label += "\n" + brand_label(bm)
         nid = ctx._pu_id("E", p["name"])
         elem_nodes[p["name"]] = nid
-        out.append(f'  [**{ctx._pu_escape(label)}**] as {nid}')
+        out.append(f"  [**{ctx._pu_escape(label)}**] as {nid}")
     out.append("}")
 
     # ---- edges ----
@@ -225,15 +231,18 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
         out.append("\n' ==== BRAND-BOOK COMPLIANCE (summary) ====")
         out.append("legend right")
         out.append("  **Brand-book compliance (page elements)**")
-        out.append(f"  pages: {bsum.get('pages', 0)}  |  "
-                   f"ok: {bsum.get('ok', 0)}  |  "
-                   f"warnings: {bsum.get('warnings', 0)}  |  "
-                   f"errors: {bsum.get('errors', 0)}")
-        out.append(f"  averages: fonts {bsum.get('fonts_compliance')}%, "
-                   f"colors {bsum.get('colors_compliance')}%")
+        out.append(
+            f"  pages: {bsum.get('pages', 0)}  |  "
+            f"ok: {bsum.get('ok', 0)}  |  "
+            f"warnings: {bsum.get('warnings', 0)}  |  "
+            f"errors: {bsum.get('errors', 0)}"
+        )
+        out.append(
+            f"  averages: fonts {bsum.get('fonts_compliance')}%, "
+            f"colors {bsum.get('colors_compliance')}%"
+        )
         if bsum.get("error_pages"):
-            out.append("  violations: " +
-                       ", ".join(bsum["error_pages"][:6]))
+            out.append("  violations: " + ", ".join(bsum["error_pages"][:6]))
         out.append("end legend")
 
     out.append("\n@enduml")

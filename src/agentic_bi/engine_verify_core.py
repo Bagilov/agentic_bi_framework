@@ -1,4 +1,5 @@
 """Result types and shared helpers for `.pbix` verification."""
+
 from __future__ import annotations
 
 import json
@@ -62,7 +63,7 @@ class VerifyReport:
     def critical_ok(self) -> bool:
         return not self.critical_failures
 
-    def extend(self, checks: list[CheckResult]) -> "VerifyReport":
+    def extend(self, checks: list[CheckResult]) -> VerifyReport:
         self.checks.extend(checks)
         return self
 
@@ -76,7 +77,8 @@ class VerifyReport:
         if bad:
             lines = [f"  - {c.name} :: {c.detail}" for c in bad]
             raise RuntimeError(
-                f"verification failed: {len(bad)} check(s)\n" + "\n".join(lines))
+                f"verification failed: {len(bad)} check(s)\n" + "\n".join(lines)
+            )
 
     def format(self, verbose: bool = True) -> str:
         lines = []
@@ -88,15 +90,15 @@ class VerifyReport:
         lines.append(
             f"RESULT: {self.passed} passed, {self.failed} failed "
             f"({len(self.critical_failures)} critical, "
-            f"{len(self.soft_failures)} soft)")
+            f"{len(self.soft_failures)} soft)"
+        )
         return "\n".join(lines)
 
 
 # ─── helpers ──────────────────────────────────────────────────
 
 
-def _check(name: str, ok: bool, detail: str = "",
-           critical: bool = True) -> CheckResult:
+def _check(name: str, ok: bool, detail: str = "", critical: bool = True) -> CheckResult:
     if not ok:
         logger.debug("check failed: %s (%s)", name, detail)
     return CheckResult(name, ok, detail, critical)
@@ -129,5 +131,3 @@ def _resolve_qref(qref: str) -> str:
     """Strip the aggregation from a queryRef: 'Sum(T.c)' -> 'T.c'."""
     m = _AGG_QREF.match(qref)
     return m.group(1) if m else qref
-
-

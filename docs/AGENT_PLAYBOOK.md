@@ -152,10 +152,15 @@ from agentic_bi.engine import EnginePipeline
 from agentic_bi import engine_verify, visual_check
 
 spec = EnginePipeline.build_spec(
-    EnginePipeline.load_rows(Path("examples/engine_sales.csv")), "Sales", "SalesTable")
+    EnginePipeline.load_rows(Path("examples/engine_sales.csv")), "Sales", "SalesTable"
+)
 # Rich boards add model measures; list them so the checks know they resolve.
-registry = {"Sales": {"columns": [c["name"] for c in spec["tables"][0]["columns"]],
-                      "measures": [m["name"] for m in spec.get("measures", [])]}}
+registry = {
+    "Sales": {
+        "columns": [c["name"] for c in spec["tables"][0]["columns"]],
+        "measures": [m["name"] for m in spec.get("measures", [])],
+    }
+}
 print("visual_errors:", visual_check.check_pbix("out.pbix", registry))
 report = engine_verify.verify_pbix("out.pbix", spec, model=True, layout_checks=True)
 print("critical_ok:", report.critical_ok())

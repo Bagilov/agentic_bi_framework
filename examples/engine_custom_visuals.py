@@ -33,15 +33,30 @@ def main() -> int:
     datamodel = pipe.build_datamodel(spec)
 
     visuals = [
-        Visual("table", "Sales",
-               columns=["id", "region", "product", "amount", "sale_date"],
-               title="Sales"),
+        Visual(
+            "table",
+            "Sales",
+            columns=["id", "region", "product", "amount", "sale_date"],
+            title="Sales",
+        ),
         Visual("card", "Sales", value="amount", agg="sum", title="Amount"),
         Visual("card", "Sales", value="qty", agg="avg", title="Avg qty"),
-        Visual("column", "Sales", axis="region", value="amount", agg="sum",
-               title="Amount by region"),
-        Visual("pie", "Sales", axis="product", value="amount", agg="count",
-               title="Share by product"),
+        Visual(
+            "column",
+            "Sales",
+            axis="region",
+            value="amount",
+            agg="sum",
+            title="Amount by region",
+        ),
+        Visual(
+            "pie",
+            "Sales",
+            axis="product",
+            value="amount",
+            agg="count",
+            title="Share by product",
+        ),
     ]
     layout = engine_layout.build_report([("Sales", visuals)])
 

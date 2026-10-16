@@ -139,8 +139,8 @@ from agentic_bi.brand_audit import audit_pptx
 cfg = BrandConfig.load("src/agentic_bi/brand_config.yaml")
 rep = audit_pptx("Presentation.pptx", cfg)
 
-print(rep.format())           # what does not comply and where
-print(rep.by_category())      # {'color': 3, 'font': 1, ...}
+print(rep.format())  # what does not comply and where
+print(rep.by_category())  # {'color': 3, 'font': 1, ...}
 if not rep.ok():
     rep.to_json("audit.json")  # hand off to a developer/designer
 ```

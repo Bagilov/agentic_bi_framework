@@ -36,8 +36,10 @@ _PAGE_SIZES = {"A4": A4, "A3": A3}
 
 # Common Unicode font locations, tried when REPORT_PDF_FONT is not set.
 _FONT_CANDIDATES = [
-    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ),
     ("/Library/Fonts/Arial Unicode.ttf", "/Library/Fonts/Arial Bold.ttf"),
     ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
     ("C:/Windows/Fonts/DejaVuSans.ttf", "C:/Windows/Fonts/DejaVuSans-Bold.ttf"),
@@ -69,16 +71,36 @@ def _resolve_fonts(font_ttf: str | None = None) -> tuple[str, str]:
 def _styles(regular: str, bold: str) -> dict:
     normal = getSampleStyleSheet()["Normal"]
     return {
-        "Title": ParagraphStyle("TitleX", parent=normal, fontName=bold,
-                                fontSize=20, leading=24, spaceAfter=4 * mm),
-        "Heading2": ParagraphStyle("Heading2X", parent=normal, fontName=bold,
-                                   fontSize=13, leading=16, spaceAfter=2 * mm),
-        "Body": ParagraphStyle("BodyX", parent=normal, fontName=regular,
-                               fontSize=9, leading=12),
-        "Cell": ParagraphStyle("CellX", parent=normal, fontName=regular,
-                               fontSize=6.5, leading=8),
-        "CellHead": ParagraphStyle("CellHeadX", parent=normal, fontName=bold,
-                                   fontSize=6.5, leading=8, textColor="#FFFFFF"),
+        "Title": ParagraphStyle(
+            "TitleX",
+            parent=normal,
+            fontName=bold,
+            fontSize=20,
+            leading=24,
+            spaceAfter=4 * mm,
+        ),
+        "Heading2": ParagraphStyle(
+            "Heading2X",
+            parent=normal,
+            fontName=bold,
+            fontSize=13,
+            leading=16,
+            spaceAfter=2 * mm,
+        ),
+        "Body": ParagraphStyle(
+            "BodyX", parent=normal, fontName=regular, fontSize=9, leading=12
+        ),
+        "Cell": ParagraphStyle(
+            "CellX", parent=normal, fontName=regular, fontSize=6.5, leading=8
+        ),
+        "CellHead": ParagraphStyle(
+            "CellHeadX",
+            parent=normal,
+            fontName=bold,
+            fontSize=6.5,
+            leading=8,
+            textColor="#FFFFFF",
+        ),
     }
 
 
@@ -137,28 +159,34 @@ def build_report(
     subtitle = source_name or meta.get("file") or ""
     if subtitle:
         story.append(Paragraph(_safe(subtitle), styles["Body"]))
-    story.append(Paragraph(
-        f"Generated: {datetime.now():%Y-%m-%d %H:%M}. "
-        f"Pages: {summary.get('pages', len(data.get('pages', [])) or 0)}, "
-        f"visuals: {summary.get('visuals', '')}, "
-        f"tables: {summary.get('tables', '')}, "
-        f"measures: {summary.get('measures', '')}.",
-        styles["Body"]))
+    story.append(
+        Paragraph(
+            f"Generated: {datetime.now():%Y-%m-%d %H:%M}. "
+            f"Pages: {summary.get('pages', len(data.get('pages', [])) or 0)}, "
+            f"visuals: {summary.get('visuals', '')}, "
+            f"tables: {summary.get('tables', '')}, "
+            f"measures: {summary.get('measures', '')}.",
+            styles["Body"],
+        )
+    )
 
     if with_diagram and plantuml.strip():
         story.append(PageBreak())
         story.extend(diagram_story(plantuml, content_w, content_h, styles))
 
     if summary.get("plantuml_available") is False:
-        story.append(Paragraph("plantuml.jar not found; diagram omitted.",
-                               styles["Body"]))
+        story.append(
+            Paragraph("plantuml.jar not found; diagram omitted.", styles["Body"])
+        )
 
     story.extend(brand_scorecard(data, styles, content_w))
 
     rows = lineage_to_table(data)
     if rows:
         story.append(PageBreak())
-        story.extend(lineage_matrix(rows, styles, content_w, max_level, include_visuals))
+        story.extend(
+            lineage_matrix(rows, styles, content_w, max_level, include_visuals)
+        )
 
     issues = brand_issues(data, styles, content_w)
     if issues:
@@ -166,10 +194,14 @@ def build_report(
         story.extend(issues)
 
     doc = SimpleDocTemplate(
-        str(out), pagesize=pagesize,
-        leftMargin=margin, rightMargin=margin,
-        topMargin=margin, bottomMargin=14 * mm,
-        title=title, author="agentic-bi-framework",
+        str(out),
+        pagesize=pagesize,
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=margin,
+        bottomMargin=14 * mm,
+        title=title,
+        author="agentic-bi-framework",
     )
     doc.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
     logger.info("PDF report written: %s", out)
@@ -177,8 +209,7 @@ def build_report(
 
 
 def _safe(text: str) -> str:
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;"))
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _plantuml_for(src: Path, data: dict) -> str:
@@ -203,25 +234,34 @@ def _plantuml_for(src: Path, data: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build a multi-page PDF lineage report from JSON/.pbix.")
+        description="Build a multi-page PDF lineage report from JSON/.pbix."
+    )
     parser.add_argument("input", help="path to lineage.json or .pbix")
-    parser.add_argument("-o", "--output", default=None,
-                        help="output .pdf path (default: next to the input as "
-                             "'<name>_YYYYMMDD_HHMMSS.pdf')")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="output .pdf path (default: next to the input as "
+        "'<name>_YYYYMMDD_HHMMSS.pdf')",
+    )
     parser.add_argument("--title", default="Data lineage report")
     parser.add_argument("--page-size", default="A4", choices=["A4", "A3"])
-    parser.add_argument("--orientation", default="landscape",
-                        choices=["landscape", "portrait"])
+    parser.add_argument(
+        "--orientation", default="landscape", choices=["landscape", "portrait"]
+    )
     parser.add_argument("--font", default=None, help="Unicode TTF font path")
     parser.add_argument("--max-level", type=int, default=7)
-    parser.add_argument("--no-visuals", action="store_true",
-                        help="exclude level 7 (visuals)")
+    parser.add_argument(
+        "--no-visuals", action="store_true", help="exclude level 7 (visuals)"
+    )
     parser.add_argument("--no-diagram", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(levelname)s: %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
 
     from agentic_bi.report.lineage_table import load_json
 
@@ -241,11 +281,17 @@ def main() -> None:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = str(inp.with_name(f"{inp.stem}_{stamp}.pdf"))
     build_report(
-        data, out, plantuml=plantuml, title=args.title,
+        data,
+        out,
+        plantuml=plantuml,
+        title=args.title,
         source_name=Path(args.input).name,
-        page_size=args.page_size, orientation=args.orientation,
-        font_ttf=args.font, max_level=args.max_level,
-        include_visuals=not args.no_visuals, with_diagram=not args.no_diagram,
+        page_size=args.page_size,
+        orientation=args.orientation,
+        font_ttf=args.font,
+        max_level=args.max_level,
+        include_visuals=not args.no_visuals,
+        with_diagram=not args.no_diagram,
     )
     print(f"PDF report saved: {out}")
 

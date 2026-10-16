@@ -16,6 +16,7 @@ Public API:
     rgb_distance()      - Euclidean distance between two HEX colors (0..441)
     normalize_hex()     - normalize a color to '#rrggbb'
 """
+
 from __future__ import annotations
 
 import json
@@ -42,7 +43,7 @@ def normalize_hex(value: str | None) -> str:
     if not value:
         return ""
     v = str(value).strip().lstrip("#")
-    if len(v) == 8:      # ARGB from openpyxl
+    if len(v) == 8:  # ARGB from openpyxl
         v = v[2:]
     if len(v) == 3:
         v = "".join(2 * ch for ch in v)
@@ -125,20 +126,34 @@ class BrandConfig:
             bg_preferred=["#FFFFFF"],
             bg_allowed=[c.hex for c in brand.PALETTE_PRIMARY],
             min_contrast=brand.MIN_CONTRAST_RATIO,
-            rules={"accent_mandatory": True, "primary_color_min": brand.PRIMARY_COLOR_MIN,
-                   "base_elements_min": brand.BASE_ELEMENTS_MIN, "check_contrast": True,
-                   "check_fonts": True, "check_colors": True},
+            rules={
+                "accent_mandatory": True,
+                "primary_color_min": brand.PRIMARY_COLOR_MIN,
+                "base_elements_min": brand.BASE_ELEMENTS_MIN,
+                "check_contrast": True,
+                "check_fonts": True,
+                "check_colors": True,
+            },
             severity=dict(_DEFAULT_SEVERITY),
-            audit={"check_text_color": True, "check_fill_color": True,
-                   "check_line_color": True, "check_background": True,
-                   "ignore_layout_placeholders": True, "max_findings": 200,
-                   "accent_tolerance": 20,
-                   "ignore_fonts": ["+mn-lt", "+mj-lt", "+mn-ea", "+mj-ea"]},
+            audit={
+                "check_text_color": True,
+                "check_fill_color": True,
+                "check_line_color": True,
+                "check_background": True,
+                "ignore_layout_placeholders": True,
+                "max_findings": 200,
+                "accent_tolerance": 20,
+                "ignore_fonts": ["+mn-lt", "+mj-lt", "+mn-ea", "+mj-ea"],
+            },
         )
-        cfg.colors_primary = [PaletteColor(c.name, c.hex, c.mandatory, c.approx,
-                                           c.ref) for c in brand.PALETTE_PRIMARY]
-        cfg.colors_additional = [PaletteColor(c.name, c.hex, c.mandatory, c.approx,
-                                              c.ref) for c in brand.PALETTE_ADDITIONAL]
+        cfg.colors_primary = [
+            PaletteColor(c.name, c.hex, c.mandatory, c.approx, c.ref)
+            for c in brand.PALETTE_PRIMARY
+        ]
+        cfg.colors_additional = [
+            PaletteColor(c.name, c.hex, c.mandatory, c.approx, c.ref)
+            for c in brand.PALETTE_ADDITIONAL
+        ]
         return cfg
 
     @classmethod

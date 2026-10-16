@@ -37,11 +37,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentic_bi.engine_verify_core import (  # noqa: F401
-    CheckResult,
-    VerifyReport,
-    load_layout,
-    spec_objects,
+from agentic_bi.engine_verify_brand import (  # noqa: F401
+    extract_report_theme,
+    verify_brand,
 )
 from agentic_bi.engine_verify_checks import (  # noqa: F401
     verify_bindings,
@@ -50,19 +48,25 @@ from agentic_bi.engine_verify_checks import (  # noqa: F401
     verify_model_data,
     verify_safe_filters,
 )
-from agentic_bi.engine_verify_brand import (  # noqa: F401
-    extract_report_theme,
-    verify_brand,
+from agentic_bi.engine_verify_core import (  # noqa: F401
+    CheckResult,
+    VerifyReport,
+    load_layout,
+    spec_objects,
 )
 
 
-def verify_pbix(pbix: Path, spec: dict,
-                pages: dict[str, int] | None = None,
-                sample: int = 50, model: bool = True,
-                layout_checks: bool = True,
-                expected_types: set[str] | None = None,
-                brand: bool = True,
-                brand_strict: bool = False) -> VerifyReport:
+def verify_pbix(
+    pbix: Path,
+    spec: dict,
+    pages: dict[str, int] | None = None,
+    sample: int = 50,
+    model: bool = True,
+    layout_checks: bool = True,
+    expected_types: set[str] | None = None,
+    brand: bool = True,
+    brand_strict: bool = False,
+) -> VerifyReport:
     """Full reverse check of a `.pbix`: container, layout, binding, data, brand.
 
     `layout_checks=False` skips the layout/binding checks (needed for a donor
@@ -74,13 +78,15 @@ def verify_pbix(pbix: Path, spec: dict,
     pbix = Path(pbix)
     report.extend(verify_container(pbix))
     from agentic_bi.engine_verify_checks import _zip_ok
+
     if not pbix.exists() or not _zip_ok(pbix):
         return report
 
     layout = load_layout(pbix)
     if layout_checks:
-        report.extend(verify_layout(layout, spec, pages=pages,
-                                    expected_types=expected_types))
+        report.extend(
+            verify_layout(layout, spec, pages=pages, expected_types=expected_types)
+        )
         report.extend(verify_bindings(layout, spec))
         report.extend(verify_safe_filters(layout))
     if model:

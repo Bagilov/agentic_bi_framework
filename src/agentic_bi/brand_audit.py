@@ -33,25 +33,26 @@ Public API:
     audit_pptx(path, cfg=None)      -> AuditReport
     audit_document(path, cfg=None)  -> AuditReport   (pptx/docx/xlsx)
 """
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from agentic_bi.brand_config import BrandConfig
-from agentic_bi.brand_eval import is_brand_font  # noqa: F401 (public re-export)
-from agentic_bi.brand_audit_types import (  # noqa: F401
-    AuditFinding,
-    AuditReport,
+from agentic_bi.brand_audit_eval import (  # noqa: F401
+    evaluate_observations,
+    limit_findings,
 )
 from agentic_bi.brand_audit_extract import (  # noqa: F401
     ThemeResolver,
     iter_pptx_observations,
 )
-from agentic_bi.brand_audit_eval import (  # noqa: F401
-    evaluate_observations,
-    limit_findings,
+from agentic_bi.brand_audit_types import (  # noqa: F401
+    AuditFinding,
+    AuditReport,
 )
+from agentic_bi.brand_config import BrandConfig
+from agentic_bi.brand_eval import is_brand_font  # noqa: F401 (public re-export)
 
 logger = logging.getLogger(__name__)
 
@@ -63,23 +64,37 @@ def audit_pptx(path: str | Path, cfg: BrandConfig | None = None) -> AuditReport:
     try:
         from pptx import Presentation
     except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("python-pptx is required: uv pip install python-pptx") from exc
+        raise RuntimeError(
+            "python-pptx is required: uv pip install python-pptx"
+        ) from exc
     try:
         prs = Presentation(str(path))
     except Exception as exc:  # noqa: BLE001 - corrupted/non-pptx file
         logger.warning("could not open %s: %s", path, exc)
-        rep.add(AuditFinding(
-            "DOC-UNREADABLE", "error", "document", str(path),
-            f"File does not open as .pptx: {exc}", str(path)))
+        rep.add(
+            AuditFinding(
+                "DOC-UNREADABLE",
+                "error",
+                "document",
+                str(path),
+                f"File does not open as .pptx: {exc}",
+                str(path),
+            )
+        )
         return rep
-    theme = (ThemeResolver.from_presentation(prs)
-             if cfg.audit.get("resolve_theme_colors", True) else ThemeResolver())
+    theme = (
+        ThemeResolver.from_presentation(prs)
+        if cfg.audit.get("resolve_theme_colors", True)
+        else ThemeResolver()
+    )
     obs = iter_pptx_observations(prs, cfg, theme)
     rep.theme = theme.as_dict()
-    rep.stats = {"slides": len(prs.slides),
-                 "color_observations": sum(1 for o in obs if o.kind != "font"),
-                 "font_observations": sum(1 for o in obs if o.kind == "font"),
-                 "theme_slots": len(theme.slots)}
+    rep.stats = {
+        "slides": len(prs.slides),
+        "color_observations": sum(1 for o in obs if o.kind != "font"),
+        "font_observations": sum(1 for o in obs if o.kind == "font"),
+        "theme_slots": len(theme.slots),
+    }
     rep.stats["theme_colors_resolved"] = sum(1 for o in obs if o.from_theme)
     evaluate_observations(obs, cfg, rep)
     limit_findings(rep, cfg)
@@ -91,19 +106,24 @@ def audit_document(path: str | Path, cfg: BrandConfig | None = None) -> AuditRep
     ext = Path(path).suffix.lower()
     if ext == ".pptx":
         return audit_pptx(path, cfg)
-    raise NotImplementedError(
-        f"format {ext!r} is not supported yet (.pptx only)")
+    raise NotImplementedError(f"format {ext!r} is not supported yet (.pptx only)")
 
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
+
     ap = argparse.ArgumentParser(
-        description="Audit a document for brand-style compliance")
+        description="Audit a document for brand-style compliance"
+    )
     ap.add_argument("document", help="path to a .pptx")
     ap.add_argument("--config", default=None, help="brand_config.yaml/json")
     ap.add_argument("--json", dest="json_out", default=None, help="save JSON")
-    ap.add_argument("--fail-on", choices=["error", "warning", "never"],
-                    default="never", help="exit code 1 on findings of this level")
+    ap.add_argument(
+        "--fail-on",
+        choices=["error", "warning", "never"],
+        default="never",
+        help="exit code 1 on findings of this level",
+    )
     args = ap.parse_args(argv)
 
     cfg = BrandConfig.load(args.config) if args.config else BrandConfig.default()
