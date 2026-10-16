@@ -31,46 +31,15 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field
+
+from agentic_bi.engine_layout_visual import Visual, _container
 
 logger = logging.getLogger(__name__)
 
 _THEME = "CY24SU05"
 
-# QOM AggregationFunction codes
-_AGG_FUNC = {"sum": 0, "avg": 1, "average": 1, "count": 2, "min": 3, "max": 4,
-             "count_nonnull": 5, "median": 6, "stddev": 7, "var": 8}
-_AGG_LABEL = {"sum": "Sum", "avg": "Avg", "average": "Avg", "min": "Min",
-              "max": "Max", "count": "Count", "count_nonnull": "Count",
-              "median": "Median", "stddev": "StDev", "var": "Var"}
 
-_VISUAL_TYPES = {
-    "table": "tableEx",
-    "matrix": "pivotTable",
-    "card": "card",
-    "column": "columnChart",
-    "bar": "barChart",
-    "line": "lineChart",
-    "pie": "pieChart",
-    "donut": "donutChart",
-    "slicer": "slicer",
-}
-
-
-
-from agentic_bi.engine_layout_visual import (  # noqa: F401
-    _AGG_FUNC,
-    _AGG_LABEL,
-    _VISUAL_TYPES,
-    Visual,
-    _agg_ref,
-    _col_ref,
-    _container,
-    _src,
-    _visual_config,
-)
-def build_report(pages: list[tuple[str, list[Visual]]],
-                 report_id: int = 0) -> bytes:
+def build_report(pages: list[tuple[str, list[Visual]]], report_id: int = 0) -> bytes:
     """Return the bytes of `Report/Layout` for pages = [(name, [Visual, ...])]."""
     sections = []
     for ordinal, (page_name, visuals) in enumerate(pages):
@@ -86,59 +55,95 @@ def build_report(pages: list[tuple[str, list[Visual]]],
             containers.append(_container(v, x, y, vw, vh))
         page_w = max([1280] + [c["x"] + c["width"] + 20 for c in containers])
         page_h = max([1050] + [c["y"] + c["height"] + 20 for c in containers])
-        sections.append({
-            "id": uuid.uuid4().int % 100000000,
-            "name": uuid.uuid4().hex[:20],
-            "displayName": page_name,
-            "filters": "[]",
-            "ordinal": ordinal,
-            "visualContainers": containers,
-            "config": json.dumps({"objects": {}, "visibility": 1}),
-            "displayOption": 3,
-            "width": page_w,
-            "height": page_h,
-        })
+        sections.append(
+            {
+                "id": uuid.uuid4().int % 100000000,
+                "name": uuid.uuid4().hex[:20],
+                "displayName": page_name,
+                "filters": "[]",
+                "ordinal": ordinal,
+                "visualContainers": containers,
+                "config": json.dumps({"objects": {}, "visibility": 1}),
+                "displayOption": 3,
+                "width": page_w,
+                "height": page_h,
+            }
+        )
     layout = {
         "id": report_id,
-        "resourcePackages": [{
-            "resourcePackage": {
-                "name": "SharedResources", "type": 2, "disabled": False,
-                "items": [{"type": 202, "path": f"BaseThemes/{_THEME}.json",
-                           "name": _THEME}],
+        "resourcePackages": [
+            {
+                "resourcePackage": {
+                    "name": "SharedResources",
+                    "type": 2,
+                    "disabled": False,
+                    "items": [
+                        {
+                            "type": 202,
+                            "path": f"BaseThemes/{_THEME}.json",
+                            "name": _THEME,
+                        }
+                    ],
+                }
             }
-        }],
+        ],
         "sections": sections,
-        "config": json.dumps({
-            "version": "5.54",
-            "themeCollection": {"baseTheme": {"name": _THEME,
-                                              "version": "5.54", "type": 2}},
-            "activeSectionIndex": 0,
-            "defaultDrillFilterOtherVisuals": True,
-            "linguisticSchemaSyncVersion": 2,
-            "settings": {"useNewFilterPaneExperience": True,
-                         "allowChangeFilterTypes": True,
-                         "useStylableVisualContainerHeader": True,
-                         "queryLimitOption": 6, "exportDataMode": 1,
-                         "useDefaultAggregateDisplayName": True,
-                         "useEnhancedTooltips": True},
-            "objects": {"section": [{"properties": {"verticalAlignment": {"expr":
-                {"Literal": {"Value": "'Top'"}}}}}],
-                "outspacePane": [{"properties": {"expanded": {"expr":
-                    {"Literal": {"Value": "false"}}}}}]},
-        }),
+        "config": json.dumps(
+            {
+                "version": "5.54",
+                "themeCollection": {
+                    "baseTheme": {"name": _THEME, "version": "5.54", "type": 2}
+                },
+                "activeSectionIndex": 0,
+                "defaultDrillFilterOtherVisuals": True,
+                "linguisticSchemaSyncVersion": 2,
+                "settings": {
+                    "useNewFilterPaneExperience": True,
+                    "allowChangeFilterTypes": True,
+                    "useStylableVisualContainerHeader": True,
+                    "queryLimitOption": 6,
+                    "exportDataMode": 1,
+                    "useDefaultAggregateDisplayName": True,
+                    "useEnhancedTooltips": True,
+                },
+                "objects": {
+                    "section": [
+                        {
+                            "properties": {
+                                "verticalAlignment": {
+                                    "expr": {"Literal": {"Value": "'Top'"}}
+                                }
+                            }
+                        }
+                    ],
+                    "outspacePane": [
+                        {
+                            "properties": {
+                                "expanded": {"expr": {"Literal": {"Value": "false"}}}
+                            }
+                        }
+                    ],
+                },
+            }
+        ),
         "layoutOptimization": 0,
-        "pods": [{"name": "Pod", "boundSection": sections[0]["name"],
-                  "config": "{}"}],
+        "pods": [{"name": "Pod", "boundSection": sections[0]["name"], "config": "{}"}],
     }
     return json.dumps(layout, ensure_ascii=False).encode("utf-16-le")
 
 
-def build_layout(table: str, columns: list[tuple[str, str]],
-                 page_name: str | None = None) -> bytes:
+def build_layout(
+    table: str, columns: list[tuple[str, str]], page_name: str | None = None
+) -> bytes:
     """Compatibility: a single page with a tableEx over `columns`."""
-    return build_report([(page_name or table,
-                          [Visual("table", table,
-                                  columns=[c[0] for c in columns])])])
+    return build_report(
+        [
+            (
+                page_name or table,
+                [Visual("table", table, columns=[c[0] for c in columns])],
+            )
+        ]
+    )
 
 
 def _auto_visuals(table: str, cols: list[dict]) -> list[Visual]:
@@ -148,17 +153,34 @@ def _auto_visuals(table: str, cols: list[dict]) -> list[Visual]:
     cats = [c["name"] for c in cols if c.get("type") == "string"]
     visuals = [Visual("table", table, columns=names, title=f"{table} (table)")]
     for n in nums[:2]:
-        visuals.append(Visual("card", table, value=n, agg="sum",
-                              title=f"Sum {n}"))
+        visuals.append(Visual("card", table, value=n, agg="sum", title=f"Sum {n}"))
     if cats and nums:
-        visuals.append(Visual("column", table, axis=cats[0], value=nums[0],
-                              agg="sum", title=f"{nums[0]} by {cats[0]}"))
-        visuals.append(Visual("pie", table, axis=cats[0], value=nums[0],
-                              agg="sum", title=f"{nums[0]} share by {cats[0]}"))
+        visuals.append(
+            Visual(
+                "column",
+                table,
+                axis=cats[0],
+                value=nums[0],
+                agg="sum",
+                title=f"{nums[0]} by {cats[0]}",
+            )
+        )
+        visuals.append(
+            Visual(
+                "pie",
+                table,
+                axis=cats[0],
+                value=nums[0],
+                agg="sum",
+                title=f"{nums[0]} share by {cats[0]}",
+            )
+        )
     return visuals
 
 
-def _classify_columns(columns: list) -> tuple[list[str], list[str], list[str], list[str]]:
+def _classify_columns(
+    columns: list,
+) -> tuple[list[str], list[str], list[str], list[str]]:
     """Split columns (dicts or names) into (names, numeric, categorical, dates)."""
     names: list[str] = []
     nums: list[str] = []
@@ -200,10 +222,15 @@ def gallery_visuals(table: str, columns: list) -> list[Visual]:
 
     W, H, GAP, COLS = 600, 320, 40, 4
     specs = [
-        Visual("table", table, columns=names,
-               title="tableEx — all columns"),
-        Visual("matrix", table, columns=cat[:2] or [c1], value=v1, agg="sum",
-               title="pivotTable — rows + value"),
+        Visual("table", table, columns=names, title="tableEx — all columns"),
+        Visual(
+            "matrix",
+            table,
+            columns=cat[:2] or [c1],
+            value=v1,
+            agg="sum",
+            title="pivotTable — rows + value",
+        ),
         Visual("card", table, value=v1, agg="sum", title="card — Sum"),
         Visual("card", table, value=v1, agg="avg", title="card — Avg"),
         Visual("card", table, value=v1, agg="max", title="card — Max"),
@@ -218,29 +245,26 @@ def gallery_visuals(table: str, columns: list) -> list[Visual]:
         Visual("treemap", table, axis=c1, value=v1, title="treemap"),
         Visual("funnel", table, axis=c1, value=v2, title="funnel"),
         Visual("waterfall", table, axis=c1, value=v1, title="waterfallChart"),
-        Visual("stackedColumn", table, axis=c1, value=v1,
-               title="stackedColumnChart"),
-        Visual("stackedBar", table, axis=c1, value=v1,
-               title="stackedBarChart"),
+        Visual("stackedColumn", table, axis=c1, value=v1, title="stackedColumnChart"),
+        Visual("stackedBar", table, axis=c1, value=v1, title="stackedBarChart"),
         Visual("scatter", table, x=v1, y=v2, title="scatterChart"),
         Visual("gauge", table, value=v1, title="gauge"),
         Visual("kpi", table, value=v1, trend=d1, title="kpi"),
     ]
     for i, vis in enumerate(specs):
-        vis.pos = (20 + (i % COLS) * (W + GAP),
-                   20 + (i // COLS) * (H + GAP), W, H)
+        vis.pos = (20 + (i % COLS) * (W + GAP), 20 + (i // COLS) * (H + GAP), W, H)
     return specs
 
 
 def build_gallery(spec: dict, page_name: str = "Visual Gallery") -> bytes:
     """Single-page gallery of every supported visual kind for the first table."""
     table = spec["tables"][0]
-    return build_report([(page_name,
-                          gallery_visuals(table["name"], table["columns"]))])
+    return build_report([(page_name, gallery_visuals(table["name"], table["columns"]))])
 
 
-def build_layout_from_spec(spec: dict, visuals: list[Visual] | None = None,
-                           page_name: str | None = None) -> bytes:
+def build_layout_from_spec(
+    spec: dict, visuals: list[Visual] | None = None, page_name: str | None = None
+) -> bytes:
     """Assemble a report from the pipeline spec.
 
     With `visuals` they are put on one page; otherwise visuals are auto-selected
@@ -248,6 +272,8 @@ def build_layout_from_spec(spec: dict, visuals: list[Visual] | None = None,
     """
     if visuals is not None:
         return build_report([(page_name or "Report", visuals)])
-    pages = [(page_name or t["name"], _auto_visuals(t["name"], t["columns"]))
-             for t in spec["tables"]]
+    pages = [
+        (page_name or t["name"], _auto_visuals(t["name"], t["columns"]))
+        for t in spec["tables"]
+    ]
     return build_report(pages)

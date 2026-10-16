@@ -11,13 +11,33 @@ Projection roles follow real Power BI `Report/Layout` conventions:
     gauge                                : Y
     kpi                                  : Indicator + TrendLine
     table / card / slicer / matrix       : Values (matrix: Rows + Values)
+
+The query primitives (`_col_ref`, `_agg_item`, `_data_query`, ...) live in
+`engine_layout_query`; this module owns the `Visual` description, the kind table
+and the container assembly.
+
+Public API:
+    Visual(kind, table, ...)                       - a visual description
+    _VISUAL_TYPES                                  - kind -> QOM visualType
+    _visual_config(v) -> dict                      - singleVisual config
+    _container(v, x, y, w, h) -> dict              - a visualContainer
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import uuid
 from dataclasses import dataclass, field
+
+from agentic_bi.engine_layout_query import (
+    _agg_item,
+    _col_item,
+    _col_ref,
+    _data_query,
+    _measure_item,
+    _src,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +63,8 @@ _VISUAL_TYPES = {
     "slicer": "slicer",
 }
 
-# kinds whose value is a category + aggregated measure (Category/Y)
-_CATEGORY_CHARTS = {
-    "column", "bar", "line", "area", "pie", "donut",
-    "funnel", "waterfall", "stackedColumn", "stackedBar",
-}
 # category charts that accept an optional Series breakdown
 _SERIES_CHARTS = {"stackedColumn", "stackedBar"}
-
-_AGG_FUNC = {"sum": 0, "avg": 1, "average": 1, "count": 2, "min": 3, "max": 4,
-             "count_nonnull": 5, "median": 6, "stddev": 7, "var": 8}
-_AGG_LABEL = {"sum": "Sum", "avg": "Avg", "average": "Avg", "min": "Min",
-              "max": "Max", "count": "Count", "count_nonnull": "Count",
-              "median": "Median", "stddev": "StDev", "var": "Var"}
 
 
 @dataclass
@@ -98,48 +107,6 @@ class Visual:
     def __post_init__(self) -> None:
         if self.kind not in _VISUAL_TYPES:
             raise ValueError(f"unknown visual kind: {self.kind}")
-
-
-def _src() -> str:
-    """The source alias inside a visual query (ASCII, safe for all encoders)."""
-    return "t"
-
-
-def _col_ref(src: str, prop: str) -> dict:
-    return {"Column": {"Expression": {"SourceRef": {"Source": src}},
-                       "Property": prop}}
-
-
-def _agg_ref(src: str, prop: str, agg: str) -> dict:
-    return {"Aggregation": {"Expression": _col_ref(src, prop),
-                            "Function": _AGG_FUNC.get(agg.lower(), 0)}}
-
-
-def _col_item(src: str, table: str, name: str) -> tuple[dict, str]:
-    """A `Column` select item; returns (item, queryRef)."""
-    qref = f"{table}.{name}"
-    return ({**_col_ref(src, name), "Name": qref,
-             "NativeReferenceName": name}, qref)
-
-
-def _agg_item(src: str, table: str, prop: str, agg: str) -> tuple[dict, str]:
-    """An `Aggregation` select item; returns (item, queryRef)."""
-    label = _AGG_LABEL.get(agg.lower(), "Sum")
-    qref = f"{label}({table}.{prop})"
-    return ({**_agg_ref(src, prop, agg), "Name": qref,
-             "NativeReferenceName": f"{label} {prop}"}, qref)
-
-
-def _measure_ref(src: str, name: str) -> dict:
-    return {"Measure": {"Expression": {"SourceRef": {"Source": src}},
-                        "Property": name}}
-
-
-def _measure_item(src: str, table: str, name: str) -> tuple[dict, str]:
-    """A `Measure` select item; returns (item, queryRef)."""
-    qref = f"{table}.{name}"
-    return ({**_measure_ref(src, name), "Name": qref,
-             "NativeReferenceName": name}, qref)
 
 
 def _visual_config(v: Visual) -> dict:
@@ -216,28 +183,40 @@ def _visual_config(v: Visual) -> dict:
 
     objects = {}
     if v.title:
-        objects["title"] = [{"properties": {"text": {"expr":
-            {"Literal": {"Value": f"'{v.title}'"}}}}}]
+        objects["title"] = [
+            {"properties": {"text": {"expr": {"Literal": {"Value": f"'{v.title}'"}}}}}
+        ]
     if v.kind == "slicer":
-        objects["data"] = [{"properties": {"mode": {"expr":
-            {"Literal": {"Value": "'Dropdown'"}}}}}]
+        objects["data"] = [
+            {"properties": {"mode": {"expr": {"Literal": {"Value": "'Dropdown'"}}}}}
+        ]
     if v.kind == "matrix":
-        objects["rowHeaders"] = [{"properties": {
-            "stepped": {"expr": {"Literal": {"Value": "true"}}},
-            "steppedLayoutIndentation": {"expr": {"Literal": {"Value": "15D"}}},
-        }}]
+        objects["rowHeaders"] = [
+            {
+                "properties": {
+                    "stepped": {"expr": {"Literal": {"Value": "true"}}},
+                    "steppedLayoutIndentation": {"expr": {"Literal": {"Value": "15D"}}},
+                }
+            }
+        ]
 
     return {
         "name": str(uuid.uuid4()),
-        "layouts": [{"id": 0, "position": {"x": 20, "y": 20, "z": 0,
-                                           "width": 600, "height": 400}}],
+        "layouts": [
+            {
+                "id": 0,
+                "position": {"x": 20, "y": 20, "z": 0, "width": 600, "height": 400},
+            }
+        ],
         "singleVisual": {
             "visualType": _VISUAL_TYPES[v.kind],
             "projections": projections,
-            "prototypeQuery": {"Version": 2,
-                               "From": [{"Name": src, "Entity": v.table, "Type": 0}],
-                               "Select": select,
-                               **({"OrderBy": order} if order else {})},
+            "prototypeQuery": {
+                "Version": 2,
+                "From": [{"Name": src, "Entity": v.table, "Type": 0}],
+                "Select": select,
+                **({"OrderBy": order} if order else {}),
+            },
             "drillFilterOtherVisuals": True,
             "objects": objects,
             "vcObjects": {},
@@ -246,44 +225,28 @@ def _visual_config(v: Visual) -> dict:
     }
 
 
-def _data_query(single_visual: dict) -> str | None:
-    """Serialize the container-level semantic query newer Desktop needs to bind data.
-
-    Power BI Desktop persists the visual query in two places: `prototypeQuery`
-    inside `singleVisual` (legacy) and a container-level `query` holding a
-    `SemanticQueryDataShapeCommand` (what current Desktop actually renders from).
-    Without the latter a data-bound visual renders blank.
-    """
-    pq = single_visual.get("prototypeQuery")
-    if not pq:
-        return None
-    projections = list(range(len(pq.get("Select", []))))
-    return json.dumps({
-        "Commands": [{
-            "SemanticQueryDataShapeCommand": {
-                "Query": pq,
-                "Binding": {
-                    "Primary": {"Groupings": [{"Projections": projections,
-                                               "Subtotal": 1}]},
-                    "DataReduction": {"DataVolume": 3,
-                                      "Primary": {"Window": {"Count": 500}}},
-                    "Version": 1,
-                },
-                "ExecutionMetricsKind": 1,
-            }
-        }]
-    }, ensure_ascii=False)
-
-
 def _container(v: Visual, x: int, y: int, w: int, h: int) -> dict:
+    """Wrap the visual config into a positioned `visualContainer`."""
     cfg = _visual_config(v)
     for lay in cfg.get("layouts", []):
-        lay["position"] = {"x": x, "y": y, "z": 0, "width": w, "height": h,
-                           "tabOrder": 0}
+        lay["position"] = {
+            "x": x,
+            "y": y,
+            "z": 0,
+            "width": w,
+            "height": h,
+            "tabOrder": 0,
+        }
         break
-    container = {"x": x, "y": y, "z": 0, "width": w, "height": h,
-                 "config": json.dumps(cfg, ensure_ascii=False),
-                 "filters": "[]"}
+    container = {
+        "x": x,
+        "y": y,
+        "z": 0,
+        "width": w,
+        "height": h,
+        "config": json.dumps(cfg, ensure_ascii=False),
+        "filters": "[]",
+    }
     query = _data_query(cfg.get("singleVisual", {}))
     if query is not None:
         container["query"] = query
