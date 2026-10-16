@@ -17,6 +17,9 @@ htmlcov/
 # Generated artifacts
 output_files/
 *.pbix
+# The donor template is a shipped test fixture, not a generated artifact: the
+# binary/web tests need a real container, so it is tracked.
+!templates/*.pbix
 !examples/*.pbix
 *.log
 
