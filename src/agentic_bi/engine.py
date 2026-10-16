@@ -4,6 +4,9 @@ The engine itself (`msmdsrv.exe`) performs the canonical model serialization, so
 the binary VertiPaq `DataModel` is guaranteed valid; the report is built from
 scratch with our own methods (`engine_layout`).
 
+Host discovery, process plumbing and the oracle transport live in `engine_host`;
+this module is the pipeline itself.
+
 Public API:
     EnginePipeline(template=..., desktop=..., work_dir=...)
     EnginePipeline.load_rows(path) -> list[dict]
@@ -20,90 +23,42 @@ Requires Windows + Power BI Desktop RS. Data: CSV / JSON / JSONL.
 
 Environment-specific values (the Desktop RS executable path and the template
 .pbix) are NOT hardcoded: set them via the constructor / CLI flags, or override
-the module defaults below.
+the module defaults in `engine_host`.
 """
 
 from __future__ import annotations
 
 import csv
-import datetime as _dt
 import json
 import logging
-import os
-import re
-import socket
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
 
-from agentic_bi.engine_types import coerce, is_date, try_fmt, to_iso, typed_column
 import agentic_bi.engine_container as engine_container
+import agentic_bi.engine_host as engine_host
 import agentic_bi.engine_layout as engine_layout
 import agentic_bi.engine_verify as engine_verify
+from agentic_bi.engine_host import DEFAULT_TEMPLATE, PBI_RS, WS_ROOT
+from agentic_bi.engine_types import coerce, typed_column
 
 logger = logging.getLogger(__name__)
 
-# Desktop executable and AS workspace root. Both prefer the RS build (the
-# framework's historical target) and fall back to the regular Desktop, and can
-# be pinned with PBI_RS_DESKTOP / PBI_RS_WS_ROOT.
-_DESKTOP_SUBPATHS = (
-    r"Microsoft Power BI Desktop RS\bin\PBIDesktop.exe",
-    r"Microsoft Power BI Desktop\bin\PBIDesktop.exe",
-)
-_WS_DIRS = ("Power BI Desktop SSRS", "Power BI Desktop")
-
-
-def _default_desktop() -> str:
-    env = os.environ.get("PBI_RS_DESKTOP")
-    if env:
-        return env
-    for sub in _DESKTOP_SUBPATHS:
-        exe = Path(r"C:\Program Files") / sub
-        if exe.exists():
-            return str(exe)
-    return r"C:\Program Files\Microsoft Power BI Desktop RS\bin\PBIDesktop.exe"
-
-
-def _ws_root() -> Path:
-    env = os.environ.get("PBI_RS_WS_ROOT")
-    if env:
-        return Path(env)
-    local = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    base = local / "Microsoft"
-    for name in _WS_DIRS:
-        cand = base / name / "AnalysisServicesWorkspaces"
-        if cand.exists():
-            return cand
-    return base / _WS_DIRS[0] / "AnalysisServicesWorkspaces"
-
-
-def _port_alive(port: int) -> bool:
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=1):
-            return True
-    except OSError:
-        return False
-
-
-PBI_RS = _default_desktop()
-WS_ROOT = _ws_root()
-DEFAULT_TEMPLATE = Path(os.environ.get("PBI_RS_TEMPLATE", "templates/template.pbix"))
-
-_DATE_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
-                 "%d.%m.%Y", "%d.%m.%Y %H:%M:%S", "%Y/%m/%d")
-
 _HERE = Path(__file__).resolve().parent
-_ENGINE_PS1 = _HERE / "_engine_build.ps1"
-_ORACLE_PY = _HERE / "_engine_oracle.py"
+
+__all__ = ["DEFAULT_TEMPLATE", "PBI_RS", "WS_ROOT", "EnginePipeline"]
 
 
 class EnginePipeline:
     """End-to-end: data -> engine model -> clean `.pbix` -> oracle."""
 
-    def __init__(self, template: Path = DEFAULT_TEMPLATE, desktop: str = PBI_RS,
-                 work_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        template: Path = DEFAULT_TEMPLATE,
+        desktop: str = PBI_RS,
+        work_dir: Path | None = None,
+    ) -> None:
         self.template = Path(template)
         self.desktop = desktop
         self.work_dir = Path(work_dir) if work_dir else _HERE / "output_files" / "_work"
@@ -132,58 +87,16 @@ class EnginePipeline:
             raise ValueError("no rows")
         cols = []
         for key in rows[0].keys():
-            vals = [EnginePipeline._coerce(r.get(key)) for r in rows]
-            cols.append(EnginePipeline._typed_column(key, vals))
-        return {"database": database,
-                "tables": [{"name": table, "columns": cols}]}
+            vals = [coerce(r.get(key)) for r in rows]
+            cols.append(typed_column(key, vals))
+        return {"database": database, "tables": [{"name": table, "columns": cols}]}
 
     # -- engine -------------------------------------------------------------
-    def _kill(self) -> None:
-        for img in ("PBIDesktop.exe", "msmdsrv.exe"):
-            subprocess.run(["taskkill", "/F", "/IM", img], capture_output=True)
-        time.sleep(4)
-
-    def _wait_port(self, timeout: int = 60) -> int:
-        root = _ws_root()
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            ws = sorted(root.glob("*"), key=lambda p: p.stat().st_mtime,
-                        reverse=True)
-            for w in ws:
-                port_file = w / "Data" / "msmdsrv.port.txt"
-                if not port_file.exists():
-                    continue
-                try:
-                    port = int(port_file.read_text().replace("\x00", "").strip())
-                except ValueError:
-                    continue
-                # Skip stale workspaces whose port is no longer listening.
-                if _port_alive(port):
-                    return port
-            time.sleep(1)
-        raise TimeoutError(f"engine port not found under {root}")
-
-    def _run_engine_build(self, spec_path: Path, abf: Path) -> str:
-        """Run `_engine_build.ps1` with one retry (the engine does not start at once)."""
-        cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-               "-File", str(_ENGINE_PS1), "-Spec", str(spec_path),
-               "-Out", str(abf)]
-        proc = None
-        for attempt in (1, 2):
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if abf.exists():
-                return (proc.stdout or "")[-400:]
-            if attempt == 1:
-                time.sleep(15)
-        logger.error("engine build failed: %s", (proc.stdout or "")[-400:])
-        raise RuntimeError(f"engine build failed:\n{(proc.stdout or '')[-400:]}\n"
-                           f"{(proc.stderr or '')[-400:]}")
-
     def build_datamodel(self, spec: dict) -> bytes:
         """Start the engine and get the canonical DataModel (ImageSave stream)."""
-        self._kill()
+        engine_host.kill_desktop()
         subprocess.Popen([self.desktop, str(self.template)])
-        port = self._wait_port()
+        port = engine_host.wait_port()
         logger.info("engine port %s", port)
 
         spec_path = Path(tempfile.gettempdir()) / f"pbix_spec_{int(time.time())}.json"
@@ -191,13 +104,14 @@ class EnginePipeline:
         abf = self.work_dir / "engine_out.abf"
         if abf.exists():
             abf.unlink()
-        tail = self._run_engine_build(spec_path, abf)
+        tail = engine_host.run_engine_build(spec_path, abf)
         logger.info("engine tail: %s", tail.strip()[-200:])
         return abf.read_bytes()
 
     # -- assembly -----------------------------------------------------------
-    def assemble(self, datamodel: bytes, spec: dict, out: Path,
-                 clean_layout: bool = True) -> Path:
+    def assemble(
+        self, datamodel: bytes, spec: dict, out: Path, clean_layout: bool = True
+    ) -> Path:
         """Write `out`: a clean layout (default) or the donor layout."""
         if clean_layout:
             layout = engine_layout.build_layout_from_spec(spec)
@@ -210,20 +124,23 @@ class EnginePipeline:
     @staticmethod
     def run_oracle(pbix: Path, hold: int) -> str:
         """Strict open check in Desktop RS; return the verdict."""
-        proc = subprocess.run([sys.executable, str(_ORACLE_PY),
-                               str(pbix.resolve()), str(hold)],
-                              cwd=str(_HERE), capture_output=True, text=True,
-                              timeout=hold + 120)
-        verdicts = re.findall(r"RESULT\s*\[([A-Z_]+)\]", proc.stdout + proc.stderr)
-        return verdicts[-1] if verdicts else "NO_RESULT"
+        return engine_host.run_oracle(pbix, hold)
 
     # -- reverse self-test --------------------------------------------------
-    def verify(self, pbix: Path, spec: dict,
-               pages: dict[str, int] | None = None, sample: int = 50,
-               strict: bool = True, model: bool = True,
-               layout_checks: bool = True, strict_soft: bool = False,
-               expected_types: set[str] | None = None,
-               brand: bool = True, brand_strict: bool = False) -> dict:
+    def verify(
+        self,
+        pbix: Path,
+        spec: dict,
+        pages: dict[str, int] | None = None,
+        sample: int = 50,
+        strict: bool = True,
+        model: bool = True,
+        layout_checks: bool = True,
+        strict_soft: bool = False,
+        expected_types: set[str] | None = None,
+        brand: bool = True,
+        brand_strict: bool = False,
+    ) -> dict:
         """Reverse-check the `.pbix` against the build spec.
 
         Checks: container integrity, presence of pages/visuals, that all fields
@@ -240,9 +157,16 @@ class EnginePipeline:
                    soft_failed, failures, checks}
         """
         report = engine_verify.verify_pbix(
-            Path(pbix), spec, pages=pages, sample=sample, model=model,
-            layout_checks=layout_checks, expected_types=expected_types,
-            brand=brand, brand_strict=brand_strict)
+            Path(pbix),
+            spec,
+            pages=pages,
+            sample=sample,
+            model=model,
+            layout_checks=layout_checks,
+            expected_types=expected_types,
+            brand=brand,
+            brand_strict=brand_strict,
+        )
         if strict:
             report.raise_if_failed(strict_soft=strict_soft)
         return {
@@ -256,20 +180,35 @@ class EnginePipeline:
             "checks": report.checks,
         }
 
-    def verify_layout_only(self, pbix: Path, spec: dict,
-                           pages: dict[str, int] | None = None,
-                           strict: bool = True) -> dict:
+    def verify_layout_only(
+        self,
+        pbix: Path,
+        spec: dict,
+        pages: dict[str, int] | None = None,
+        strict: bool = True,
+    ) -> dict:
         """Fast check without the model read-back (no pbixray needed)."""
         return self.verify(pbix, spec, pages=pages, strict=strict, model=False)
 
     # -- orchestration ------------------------------------------------------
-    def run(self, data: Path, table: str, database: str, out: Path,
-            check_oracle: bool = True, hold: int = 70,
-            clean_layout: bool = True, verify: bool = True,
-            strict_verify: bool = True, pages: dict[str, int] | None = None,
-            sample: int = 50, model_verify: bool = True,
-            strict_soft: bool = False, brand_verify: bool = True,
-            brand_strict: bool = False) -> dict:
+    def run(
+        self,
+        data: Path,
+        table: str,
+        database: str,
+        out: Path,
+        check_oracle: bool = True,
+        hold: int = 70,
+        clean_layout: bool = True,
+        verify: bool = True,
+        strict_verify: bool = True,
+        pages: dict[str, int] | None = None,
+        sample: int = 50,
+        model_verify: bool = True,
+        strict_soft: bool = False,
+        brand_verify: bool = True,
+        brand_strict: bool = False,
+    ) -> dict:
         """Full run: data -> datamodel -> container -> checks -> oracle."""
         rows = self.load_rows(data)
         spec = self.build_spec(rows, table, database)
@@ -277,27 +216,30 @@ class EnginePipeline:
 
         datamodel = self.build_datamodel(spec)
         self.assemble(datamodel, spec, out, clean_layout=clean_layout)
-        result = {"out": str(out), "rows": len(rows),
-                  "pbix_bytes": out.stat().st_size,
-                  "datamodel_bytes": len(datamodel),
-                  "layout": "clean" if clean_layout else "donor"}
+        result = {
+            "out": str(out),
+            "rows": len(rows),
+            "pbix_bytes": out.stat().st_size,
+            "datamodel_bytes": len(datamodel),
+            "layout": "clean" if clean_layout else "donor",
+        }
         if verify:
-            report = self.verify(out, spec, pages=pages, sample=sample,
-                                 strict=strict_verify, model=model_verify,
-                                 layout_checks=clean_layout,
-                                 strict_soft=strict_soft,
-                                 brand=brand_verify, brand_strict=brand_strict)
+            report = self.verify(
+                out,
+                spec,
+                pages=pages,
+                sample=sample,
+                strict=strict_verify,
+                model=model_verify,
+                layout_checks=clean_layout,
+                strict_soft=strict_soft,
+                brand=brand_verify,
+                brand_strict=brand_strict,
+            )
             result["verify"] = "ok" if report["critical_ok"] else "FAILED"
             result["verify_passed"] = report["passed"]
             result["verify_failed"] = report["failed"]
             result["verify_soft_failed"] = report["soft_failed"]
         result["oracle"] = self.run_oracle(out, hold) if check_oracle else "SKIPPED"
-        self._kill()
+        engine_host.kill_desktop()
         return result
-
-    # -- type inference (delegates to engine_types) -------------------------
-    _coerce = staticmethod(lambda v: coerce(v))
-    _is_date = staticmethod(lambda v: is_date(v))
-    _try_fmt = staticmethod(lambda v, fmt: try_fmt(v, fmt))
-    _to_iso = staticmethod(lambda v: to_iso(v))
-    _typed_column = staticmethod(lambda name, vals: typed_column(name, vals))
