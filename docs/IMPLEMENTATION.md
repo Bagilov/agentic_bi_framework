@@ -44,6 +44,7 @@ data (CSV/JSON) -> model via TOM -> Server.ImageSave (canonical DataModel)
 ```
 
 - `engine.py` (`EnginePipeline`) — the orchestrator.
+- `engine_host.py` — host discovery (Desktop exe, AS workspace root, donor template) and process plumbing (port/`taskkill`/PowerShell build/oracle).
 - `engine_container.py` — OPC: read members, `swap_datamodel`, `build_container`.
 - `engine_layout.py` — build `Report/Layout` from scratch (table/card/column/bar/line/pie/donut).
 - `engine_cli.py` — CLI; `_engine_build.ps1` — TOM + `ImageSave`; `_engine_oracle.py` — strict open check.
@@ -57,6 +58,7 @@ data (CSV/JSON) -> model via TOM -> Server.ImageSave (canonical DataModel)
 | `skeleton.py` | Generate a PBIP skeleton and layout: KPI/chart/table/filters, query structure |
 | `rebuild.py` | `rebuild_pbix(src, out, ..., layout=...)` — fold a layout into a binary `.pbix` |
 | `engine.py` | `EnginePipeline` — build a `.pbix` from arbitrary data via the Desktop AS engine |
+| `engine_host.py` | Host/process plumbing: `PBI_RS`, `WS_ROOT`, `DEFAULT_TEMPLATE`, `wait_port`, `run_engine_build`, `run_oracle` |
 | `engine_container.py` | OPC operations on a `.pbix`: `swap_datamodel`, `build_container`, `read_member` |
 | `engine_layout.py` | Build `Report/Layout` from scratch: `Visual`, `build_report`, `build_layout_from_spec` |
 | `engine_verify.py` | **Reverse self-test of a `.pbix`**: container, layout/pages, bindings, IN-filter guard, model read-back, **theme vs style guide** (`verify_brand`, `extract_report_theme`) |
@@ -77,7 +79,7 @@ data (CSV/JSON) -> model via TOM -> Server.ImageSave (canonical DataModel)
 | `inspect_board.py` | Inspect an existing Report Server dashboard: find by path → download `.pbix` → break down elements via PbiLineage |
 | `dax_detail.py` | Deep DAX/M analysis of a `.pbix`: all measures with expressions, calc columns, M code, distortion-risk indices + antipattern summary |
 | `docs/FRAMEWORK.md` | **Framework overview**: methods/techniques/concepts across the 5 aspects |
-| `tests/` | Skeleton, antipattern and validation tests |
+| `tests/` | Binary DataModel (`pbix_binary`) and web-clone (`web_report`) tests |
 
 ## 4. Quick start
 
@@ -139,10 +141,12 @@ Result (`--dry-run`):
 `board_fake.py` builds a board over **real objects** of the donor model:
 
 ```python
-TABLE         = "fact_table"                 # table for columns/axes/filters
-MEASURE_TABLE = "kpi_measures"    # table the measures come from
-MEASURES      = [{"name": "metric_a", "expression": ""},
-                 {"name": "metric_b", "expression": ""}]
+TABLE = "fact_table"  # table for columns/axes/filters
+MEASURE_TABLE = "kpi_measures"  # table the measures come from
+MEASURES = [
+    {"name": "metric_a", "expression": ""},
+    {"name": "metric_b", "expression": ""},
+]
 ```
 
 `build_skeleton(...)` call:
@@ -169,16 +173,18 @@ from pathlib import Path
 from agentic_bi.skeleton import build_skeleton, layout_from_report
 
 pbir = build_skeleton(
-    out=Path("output_files/my_proj"),   # project folder
-    report_name="my_proj",              # name for .pbir/.Report/.Semantic
-    display_name="My dashboard",        # page name
-    table="fact_table",                  # columns table
+    out=Path("output_files/my_proj"),  # project folder
+    report_name="my_proj",  # name for .pbir/.Report/.Semantic
+    display_name="My dashboard",  # page name
+    table="fact_table",  # columns table
     measure_table="kpi_measures",  # measures table (opt.)
-    columns=[{"name": "metric", "dataType": "string"},
-             {"name": "period_start", "dataType": "datetime"}],
+    columns=[
+        {"name": "metric", "dataType": "string"},
+        {"name": "period_start", "dataType": "datetime"},
+    ],
     measures=[{"name": "metric_a", "expression": ""}],
     kpi={"kind": "measure", "property": "metric_a", "display": "Metric A"},
-    chart_type="lineChart",             # or "clusteredColumnChart"
+    chart_type="lineChart",  # or "clusteredColumnChart"
     chart_axis={"kind": "column", "property": "period_start", "display": "Period"},
     chart_value={"kind": "measure", "property": "metric_b", "display": "Metric B"},
     table_fields=[
@@ -207,9 +213,9 @@ _, layout = build_skeleton(...)
 
 # 2. Fold the layout into a binary .pbix (taking the DataModel from the donor)
 out = rebuild_pbix(
-    Path("donor.pbix"),                 # binary DataModel source
+    Path("donor.pbix"),  # binary DataModel source
     Path("output_files/my_dashboard.pbix"),
-    layout=layout,                      # our layout
+    layout=layout,  # our layout
 )
 ```
 
@@ -245,10 +251,14 @@ from agentic_bi.publish import publish_pbix
 
 res = publish_pbix(
     Path("output_files/my_dashboard.pbix"),
-    "my_dashboard",                       # name on the server (without .pbix)
-    "/Target/Dev",                        # folder
-    {"server": "reportserver.example.com", "base_path": "/reportserver",
-     "api_prefix": "/api/v2.0", "timeout": 300},
+    "my_dashboard",  # name on the server (without .pbix)
+    "/Target/Dev",  # folder
+    {
+        "server": "reportserver.example.com",
+        "base_path": "/reportserver",
+        "api_prefix": "/api/v2.0",
+        "timeout": 300,
+    },
 )
 print(res)  # {"Id": "...", "Path": "...", ...} or {"status": ...}
 ```
@@ -319,17 +329,22 @@ Main APIs:
 
 ```bash
 cd agentic_bi_framework
-pytest tests/ -v
+pytest tests/ -q
 ```
+
+The binary and web-clone tests need a real `.pbix` container and use the shipped
+donor `templates/template.pbix` (tracked in git). When it is absent they are
+**skipped**, not failed, so the stdlib-only suite still runs anywhere.
 
 | File | What it checks |
 |------|----------------|
-| `test_skeleton.py` | query-item format, filters, layout, model, serialization |
-| `test_antipatterns.py` | antipattern detectors (measures, columns, tables, pages) |
-| `test_validate_pbix.py` | the built board layout references only real donor objects |
-| `test_board.py` | the declarative `Board` builder (pages, KPI/chart/table, auto-layout, rebuild) |
-| `test_agents.py` | `SupportAgent` manifests, lifecycle stages, spec overrides, Kilo materialization |
-| `test_engine.py` | OPC container, visuals/layout, type inference **and the `engine_verify` reverse test** |
+| `test_pbix_binary_codec.py` | the XPress9/ABF codec: header, member table, round-trip |
+| `test_pbix_binary_relayout.py` | uneven re-layout of `DataModel` (member-level offsets) |
+| `test_pbix_binary_patch.py` | the patch pipeline: spec load, classify, apply, guard rails |
+| `test_pbix_binary_board.py` | build a board, patch its binary model, read it back |
+| `test_pbix_desktop_oracle.py` | Desktop oracle (skipped unless `AGENTIC_BI_GUEST_*` is set) |
+| `test_web_report_checks.py` | per-element checks (`STRUCT-*`, `BIND-*`, `FILTER-*`) |
+| `test_web_report_render.py` | layout render: geometry, mock glyphs, severity, filters, donor clone |
 
 ## 11.1 Reverse self-testing of a `.pbix` (`engine_verify`)
 
@@ -339,9 +354,11 @@ returns the expected data.
 
 ```python
 from agentic_bi.engine import EnginePipeline
+
 pipe = EnginePipeline()
-res = pipe.run("sales.csv", "Sales", "SalesDB", "out.pbix",
-               pages={"Sales": 5})          # verify=True by default
+res = pipe.run(
+    "sales.csv", "Sales", "SalesDB", "out.pbix", pages={"Sales": 5}
+)  # verify=True by default
 # res["verify"] == "ok", res["verify_passed"], res["verify_failed"]
 ```
 
@@ -383,7 +400,8 @@ In the final stage the report theme is checked against the corporate style
 
 ```python
 import agentic_bi.engine_verify as engine_verify
-theme = engine_verify.extract_report_theme("out.pbix")   # fonts/colors/background
+
+theme = engine_verify.extract_report_theme("out.pbix")  # fonts/colors/background
 engine_verify.verify_brand("out.pbix", theme=theme, strict=False)
 ```
 
@@ -441,7 +459,7 @@ As an API:
 ```python
 from agentic_bi.inspect_board import inspect_board
 
-thesis = inspect_board("/Reports/MyReport")   # dict: summary + pages + sources
+thesis = inspect_board("/Reports/MyReport")  # dict: summary + pages + sources
 ```
 
 Returns a thesis structure: `summary` (pages/visuals/tables/measures/sources),
@@ -501,12 +519,18 @@ Programmatic:
 ```python
 from agentic_bi.report import build_report, LineageTable, lineage_to_table
 
-rows = lineage_to_table(data)          # flat level matrix (list[dict])
+rows = lineage_to_table(data)  # flat level matrix (list[dict])
 LineageTable(data).to_excel("matrix.xlsx")
 
-build_report(data, "lineage.pdf", plantuml=plantuml_source,
-             page_size="A4", orientation="landscape",
-             max_level=7, include_visuals=True)
+build_report(
+    data,
+    "lineage.pdf",
+    plantuml=plantuml_source,
+    page_size="A4",
+    orientation="landscape",
+    max_level=7,
+    include_visuals=True,
+)
 ```
 
 Module map:
@@ -597,8 +621,7 @@ from agentic_bi.pbix_binary import patch_pipeline
 
 report = patch_pipeline.apply_patches(
     Path("template.pbix"),
-    [{"kind": "replace_member", "member": "metadata.sqlitedb",
-      "path": "new_model.db"}],
+    [{"kind": "replace_member", "member": "metadata.sqlitedb", "path": "new_model.db"}],
     Path("out.pbix"),
 )
 print(report.size, report.abf_size, report.log)
@@ -633,3 +656,89 @@ emulated cold starts.
 Observed on a Windows 11 ARM UTM guest (Power BI Desktop x64): both a freshly
 built board and the same board edited with the uneven `metadata.sqlitedb`
 replacement returned `MODEL_LOADED`.
+
+---
+
+## 17. Dashboard web clone (`web_report/`)
+
+`web_report` renders a **single self-contained HTML page that looks like the
+original report**: page tabs, and on each page every element sits at its true
+`Report/Layout` position/size, drawn with a mock glyph for its visual type (the
+real visuals cannot render without the engine). The page is interactive:
+
+* hovering an element shows a tooltip with its metrics and the checks it failed;
+* problem elements are outlined by severity (red/amber/green);
+* the filter panel (severity / page / visual type / **check id**) dims everything
+  that does not match, so problem spots can be isolated on the layout;
+* clicking an element opens a detail popover; a collapsed section carries the
+  flat metrics/issues table.
+
+The shell and interactions follow the framework's own process-mining HTML report
+style (dark theme, stats grid, slide-in filter panel, hover tooltips).
+
+```
+.pbix  ->  Report/Layout  ->  WebReportModel  ->  single HTML file (layout)
+                                 (pages, elements, geometry, issues, metrics)
+```
+
+Module map:
+
+| Module | Responsibility |
+|---|---|
+| `web_report/web_model.py` | typed model: `Issue`, `ElementMetrics`, `ElementReport`, `PageReport`, `WebReportModel` |
+| `web_report/web_checks.py` | per-element checks (issue ids below) |
+| `web_report/web_inspect.py` | layout -> model; `registry_from_pbix` (pbixray, optional) |
+| `web_report/web_mock.py` | mock SVG glyph per visual type (gives the board look) |
+| `web_report/web_assets.py` | CSS/JS assets (dark shell, layout canvas, tabs, filters, popover) |
+| `web_report/web_render.py` | model -> one HTML file (`render_html`, `write_html`) |
+| `web_report/web_cli.py` | `agentic-bi-web-clone` CLI |
+
+Per-element checks (issue ids, all re-usable):
+
+| Check id | Severity | Meaning |
+|---|---|---|
+| `STRUCT-NO-SINGLEVISUAL` | error | container has no `singleVisual` |
+| `STRUCT-NO-PROJECTIONS` | error | a data visual renders empty (no projections) |
+| `INFO-STATIC-VISUAL` | info | a decorative visual (textbox/image/shape) has no data |
+| `STRUCT-UNKNOWN-TYPE` | warning | visualType not in the role table (info if decorative) |
+| `STRUCT-ROLE-NOT-ALLOWED` | error | projection role not allowed for the type |
+| `STRUCT-MISSING-ROLE` | error | required role missing for the type |
+| `BIND-NO-SELECT` | error | projection `queryRef` has no matching `Select` |
+| `BIND-TABLE-MISSING` / `BIND-FIELD-MISSING` | error | Select/aggregation outside the model (needs a registry) |
+| `FILTER-UNSAFE-IN` | error | `Condition.In` visual filter (crashes the pivot on drill) |
+
+Usage counts (colors, explicit fonts, visual-filter count) are **metrics**, not
+issues; they appear in the tooltip/popover and in the details table (fields,
+roles, colors, filters, errors, warnings, violated check ids, status badge).
+
+### CLI
+
+```bash
+# clone with model-membership checks read from the .pbix via pbixray
+agentic-bi-web-clone --pbix board.pbix --out board_clone.html --model-registry
+
+# or supply an explicit registry (no pbixray needed)
+agentic-bi-web-clone --pbix board.pbix --out board_clone.html --registry reg.json
+```
+
+Runnable example: `examples/web_report_clone.py` (clones the shipped donor and
+prints the per-element findings to the console).
+
+### API
+
+```python
+from agentic_bi.web_report import build_model, write_html
+from agentic_bi.web_report.web_inspect import registry_from_pbix
+
+reg = registry_from_pbix("board.pbix")  # optional; "" if pbixray missing
+model = build_model("board.pbix", registry=reg)
+print(model.summary())  # pages/elements/issues by severity
+write_html(model, "output_files/board_clone.html")
+```
+
+Notes:
+
+- The layout is pure HTML/CSS; no network is required (no CDN, no JS libraries).
+- `pbixray` is optional: without it the `BIND-*-MISSING` checks are skipped.
+- Tests: `tests/test_web_report_checks.py` (checks) and
+  `tests/test_web_report_render.py` (layout render + the shipped donor + a board).

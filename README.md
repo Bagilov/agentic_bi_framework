@@ -32,6 +32,7 @@ agentic_bi_framework/
 ├── examples/
 │   ├── board_declare.yaml     # declarative multi-page board spec
 │   ├── engine_custom_visuals.py
+│   ├── web_report_clone.py    # HTML clone of a dashboard + per-element checks
 │   └── engine_sales.csv
 ├── pyproject.toml             # packaging & optional dependency groups
 └── src/agentic_bi/            # the implementation (depth)
@@ -45,6 +46,7 @@ agentic_bi_framework/
     ├── brand*.py              # corporate brand rules & auditing
     ├── publish.py / automate.py
     ├── pbix_binary/           # member-level binary DataModel editing (incl. uneven length)
+    ├── web_report/            # HTML clone of a dashboard as an interactive layout + per-element checks
     ├── lineage/               # vendored: .pbix lineage extraction
     ├── antipatterns/          # vendored: DAX/M antipattern analysis
     ├── reportserver/          # vendored: generic Report Server access
@@ -112,9 +114,13 @@ The core runs on the Python standard library alone. Integrations are opt-in:
 | `spec` | YAML/JSON declarative specs |
 | `readback` | model read-back / deep DAX-M analysis (`pbixray`) |
 | `server` | Report Server REST publish & inspection |
+| `server-native` | native SSPI/SPNEGO negotiation for on-prem Report Server |
 | `brand` | `.pptx` brand auditing |
 | `tables` | Excel/Parquet export of lineage tables |
+| `report` | multi-page PDF lineage report (diagram + matrix + brand) |
 | `binary` | member-level binary DataModel (ABF) editing (`xpress9`) |
+| `dev` | linter/formatter (`ruff`) + `pytest` |
+| `all` | every integration above |
 
 ## License
 
