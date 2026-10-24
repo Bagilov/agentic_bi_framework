@@ -602,6 +602,20 @@ Patch kinds (a JSON spec is a list, or `{"patches": [...]}`):
 length-changing byte patch is rejected (it would silently shift the stream).
 `replace_member` is the uneven-length path — the buffer is re-laid.
 
+A byte patch must match exactly one site. When several match, pass `occurrence`
+(a 0-based index) to pick one, or `"occurrence": "all"` to replace every match;
+without either, the patch is rejected as ambiguous rather than applied to the
+first match.
+
+```json
+{"kind": "replace_hex", "find": "0000000000000000", "with": "1111111111111111",
+ "occurrence": 1}
+```
+
+Every `apply_patches` call re-reads the written `.pbix`, decompresses its
+`DataModel` and parses the ABF index before returning, so a successful result
+means the model inside is structurally intact (this does not open Desktop).
+
 ### CLI
 
 ```bash
@@ -656,6 +670,34 @@ emulated cold starts.
 Observed on a Windows 11 ARM UTM guest (Power BI Desktop x64): both a freshly
 built board and the same board edited with the uneven `metadata.sqlitedb`
 replacement returned `MODEL_LOADED`.
+
+### One-shot guest chain (`guest_chain.py`)
+
+`guest_chain.build_dashboard` wraps the whole guest flow behind **one bounded
+call**: start the VM, stage the framework, run the engine build in the guest's
+interactive session, pull the `.pbix` back, optionally run the Desktop oracle,
+and always tear down — the scheduled task is unregistered and the VM is stopped
+only if this chain started it. Every stage shares one `Deadline`, so the process
+always ends on exactly one verdict and can never hang.
+
+- Modules: `guest_types` (`Deadline`, `ChainTimeout`, `StageError`,
+  `GuestConfig`), `guest_vm` (`VMController`, `host_reachable_ip`),
+  `guest_winrm` (`WinRMChannel`), `guest_staging` (`StagingMixin`),
+  `guest_task` (interactive tasks, `parse_exitcode`, `extract_zip`),
+  `guest_transport` (the composed `WinRMTransport`), `guest_chain_build` (stage +
+  build + fetch), `guest_chain` (config, verdict, `build_dashboard`),
+  `guest_chain_cli` (the CLI entry point).
+- Verdicts: `BUILT`, `NOT_BUILT`, `STAGE_FAILED`, `ORACLE_FAILED`, `TIMEOUT`
+  (CLI-only `NOT_CONFIGURED`). Exit code 0 only for `BUILT` with
+  `oracle in (None, "MODEL_LOADED")`.
+- Completion is signalled by a **marker file** (`EXITCODE=<rc>`), not a log
+  string: a PowerShell `*>` redirect writes UTF-16 while `Out-File -Encoding
+  utf8` appends UTF-8, so a text sentinel comes back mangled.
+- Staging uses .NET `ZipFile.ExtractToDirectory` plus a file-count guard;
+  `Expand-Archive -Force` under PS 5.1 silently stopped after 14 of 113 files.
+- CLI: `agentic-bi-guest-dashboard --repo . --vm-uuid <uuid> --oracle`.
+- Tests: `tests/test_guest_chain.py` (offline); the live path is covered by
+  `tests/test_pbix_desktop_oracle.py` when the guest is configured.
 
 ---
 
