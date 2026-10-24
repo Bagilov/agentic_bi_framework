@@ -239,7 +239,7 @@ spec = load("board_declare.yaml")
 for agent in resolve_agents(spec):
     print(agent.id, agent.stage)
     # materialize into a Kilo agent file .kilo/agent/<id>.md
-    # Path(f".kilo/agent/{agent.id}.md").write_text(render_kilo_agent(agent, ""))
+    # Path(f".kilo/agent/{agent.id}.md").write_text(render_kilo_agent(agent))
 ```
 
 ### Checklist for an agent automating this framework

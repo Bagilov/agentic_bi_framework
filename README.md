@@ -40,6 +40,7 @@ agentic_bi_framework/
     ├── skeleton.py            # PBIP skeleton + layout generation
     ├── rebuild.py             # fold layout into a donor .pbix
     ├── engine*.py             # build a .pbix from arbitrary data via the AS engine
+    ├── guest*.py              # bounded Windows-guest chain (WinRM build + Desktop oracle)
     ├── validate_pbix.py       # validate layout against the donor model
     ├── engine_verify.py       # reverse self-test of a built .pbix
     ├── spec.py / thresholds.py / agents.py
@@ -93,7 +94,7 @@ spec = load("examples/board_declare.yaml")
 for agent in resolve_agents(spec):
     print(agent.id, agent.stage, agent.role)
     # materialize a Kilo agent file:
-    # Path(f".kilo/agent/{agent.id}.md").write_text(render_kilo_agent(agent, ""))
+    # Path(f".kilo/agent/{agent.id}.md").write_text(render_kilo_agent(agent))
 ```
 
 Registry: `agent.builder` (develop), `agent.tester` (test), `agent.deployer`
@@ -119,6 +120,7 @@ The core runs on the Python standard library alone. Integrations are opt-in:
 | `tables` | Excel/Parquet export of lineage tables |
 | `report` | multi-page PDF lineage report (diagram + matrix + brand) |
 | `binary` | member-level binary DataModel (ABF) editing (`xpress9`) |
+| `guest` | Windows-guest chain over WinRM (build + Desktop oracle in a UTM VM) |
 | `dev` | linter/formatter (`ruff`) + `pytest` |
 | `all` | every integration above |
 

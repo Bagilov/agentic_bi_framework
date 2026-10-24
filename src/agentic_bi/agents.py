@@ -159,16 +159,20 @@ AGENT_REGISTRY: dict[str, SupportAgent] = {a.id: a for a in _default_agents()}
 
 
 def all_agents(stage: str | None = None) -> list[SupportAgent]:
-    """All support agents, optionally only for one stage."""
+    """All support agents, optionally only for one stage.
+
+    An unknown stage raises rather than returning `[]`: a typo would otherwise
+    look like "this stage has no agents" and silently orphan every agent.
+    """
     if stage is None:
         return list(AGENT_REGISTRY.values())
+    if stage not in STAGES:
+        raise ValueError(f"Unknown stage '{stage}'; allowed: {STAGES}")
     return [a for a in AGENT_REGISTRY.values() if a.stage == stage]
 
 
 def agents_for_stage(stage: str) -> list[SupportAgent]:
     """Agents supporting a particular lifecycle stage."""
-    if stage not in STAGES:
-        raise ValueError(f"Unknown stage '{stage}'; allowed: {STAGES}")
     return all_agents(stage)
 
 
@@ -178,9 +182,18 @@ def to_manifest(agent: SupportAgent) -> dict:
 
 
 def from_manifest(d: dict) -> SupportAgent:
-    """Build a SupportAgent from a manifest (dict)."""
+    """Build a SupportAgent from a manifest (dict).
+
+    The `stage` is validated here: a manifest may only name a known lifecycle
+    stage, so a typo fails loudly instead of producing an agent that no stage
+    resolves (which would silently disappear from every stage view).
+    """
     if "id" not in d or "role" not in d or "stage" not in d:
         raise ValueError("An agent manifest must contain id, role, stage")
+    if d["stage"] not in STAGES:
+        raise ValueError(
+            f"Unknown stage '{d['stage']}' in agent '{d['id']}'; allowed: {STAGES}"
+        )
     return SupportAgent(
         id=d["id"],
         role=d["role"],
@@ -245,8 +258,13 @@ def resolve_agents(
     return result
 
 
-def render_kilo_agent(agent: SupportAgent, path: str) -> str:
-    """Render a Kilo agent markdown (file ``.kilo/agent/<id>.md``)."""
+def render_kilo_agent(agent: SupportAgent) -> str:
+    """Render a Kilo agent markdown (body of ``.kilo/agent/<id>.md``).
+
+    Returns the file's text; writing it is the caller's job. The `agent.id` is
+    **not** sanitised here, so a writer must treat it as a filename and reject
+    separators/traversal (the returned body itself is inert).
+    """
     tools = ", ".join(agent.tools) or "-"
     triggers = ", ".join(agent.triggers) or "-"
     return (
