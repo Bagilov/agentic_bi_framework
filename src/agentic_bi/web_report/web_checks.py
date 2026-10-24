@@ -19,23 +19,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from agentic_bi.layout_meta import DECORATIVE_VISUAL_TYPES
 from agentic_bi.web_report.web_model import Issue
 
 # Decorative/static visuals that legitimately carry no data projections. They are
 # reported as info (not errors) so a clone of an arbitrary report stays readable.
-NON_DATA_TYPES = {
-    "textbox",
-    "image",
-    "shape",
-    "basicShape",
-    "actionButton",
-    "bookmarkNavigator",
-    "pageNavigator",
-    "qnaVisual",
-    "groupContainer",
-    "shapeMap",
-    "rectangle",
-}
+# The list itself lives in `layout_meta` (shared with `engine_verify_checks`).
+NON_DATA_TYPES = DECORATIVE_VISUAL_TYPES
 
 
 def has_in_filter(raw: Any) -> bool:

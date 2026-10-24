@@ -21,6 +21,8 @@ import logging
 import zipfile
 from pathlib import Path
 
+from agentic_bi.layout_meta import decode_layout_with_encoding
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,18 +61,19 @@ def _default_content_types(parts: list[str]) -> str:
 
 
 def _extract_layout(src: Path) -> tuple[dict, str]:
-    """Extract Report/Layout from a ready .pbix (sample of model references)."""
+    """Extract Report/Layout from a ready .pbix (sample of model references).
+
+    Returns the layout and the encoding to write it back as: Desktop uses plain
+    UTF-16LE without BOM, so any UTF-16 source is normalized to that; UTF-8
+    sources are preserved as UTF-8.
+    """
     with zipfile.ZipFile(src) as z:
         raw = z.read("Report/Layout")
-    # Real format: UTF-16LE without BOM. Decode by sniffing the bytes.
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or (len(raw) > 1 and raw[1] == 0):
-        return json.loads(raw.decode("utf-16")), "utf-16le"
-    for enc in ("utf-8-sig", "utf-8"):
-        try:
-            return json.loads(raw.decode(enc)), enc
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-    raise ValueError("Could not decode the source Report/Layout")
+    try:
+        layout, enc = decode_layout_with_encoding(raw)
+    except ValueError as exc:
+        raise ValueError("Could not decode the source Report/Layout") from exc
+    return layout, "utf-16le" if enc.startswith("utf-16") else enc
 
 
 def _new_layout(
@@ -186,15 +189,11 @@ def rebuild_pbix(
                     # Keep the same encoding as the source — plain UTF-16LE
                     # without BOM (otherwise Desktop/analyzers cannot decode the
                     # layout; the source has no BOM).
-                    utf16 = json.dumps(new_layout, ensure_ascii=False).encode(
-                        "utf-16-le"
-                    )
+                    text = json.dumps(new_layout, ensure_ascii=False)
                     data = (
-                        b"\xff\xfe" + utf16
-                        if layout_enc == "utf-16be"
-                        else utf16
+                        text.encode("utf-16-le")
                         if layout_enc == "utf-16le"
-                        else json.dumps(new_layout, ensure_ascii=False).encode("utf-8")
+                        else text.encode(layout_enc)
                     )
                 zout.writestr(name, data)
 

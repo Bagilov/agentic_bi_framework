@@ -29,6 +29,7 @@ _DEFAULT_SEVERITY = {
     "BRAND-ACCENT-MANDATORY": "error",
     "BRAND-PALETTE-MEMBERSHIP": "warning",
     "BRAND-PRIMARY-COLORS-MIN": "warning",
+    "PAINT-UNRESOLVED": "info",
     "FONT-FAMILY-BRAND": "warning",
     "FONT-WEIGHT-ALLOWED": "warning",
     "FONT-SIZE-STEP": "info",

@@ -28,11 +28,16 @@ def _is_neutral(hex_color: str) -> bool:
 
     White is the ideal logo background, black and grey shades are recommended.
     Achromatic colors (R==G==B) are treated as neutral service backgrounds, not
-    brand colors.
+    brand colors. A value that is not a 6-digit hex is not neutral (it is handled
+    as an off-palette color by the caller) rather than raising.
     """
-    r = int(hex_color[1:3], 16)
-    g = int(hex_color[3:5], 16)
-    b = int(hex_color[5:7], 16)
+    h = _hex_norm(hex_color or "")
+    if len(h) != 7:
+        return False
+    try:
+        r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
+    except ValueError:
+        return False
     return r == g == b
 
 

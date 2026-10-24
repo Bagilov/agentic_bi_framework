@@ -21,6 +21,8 @@ import json
 import zipfile
 from pathlib import Path
 
+from agentic_bi.layout_meta import DECORATIVE_VISUAL_TYPES, decode_layout
+
 # allowed projection roles per visualType (derived from real Power BI files)
 ALLOWED = {
     "tableEx": {"Values", "Tooltips"},
@@ -70,14 +72,9 @@ REQUIRED = {
 
 
 def layout_from_pbix(pbix: str | Path) -> dict:
-    """Decode `Report/Layout` from a `.pbix` archive."""
+    """Decode `Report/Layout` from a `.pbix` archive (encoding is sniffed)."""
     raw = zipfile.ZipFile(pbix).read("Report/Layout")
-    for enc in ("utf-16-le", "utf-8-sig", "utf-8"):
-        try:
-            return json.loads(raw.decode(enc))
-        except Exception:  # noqa: BLE001
-            continue
-    raise ValueError("cannot decode Report/Layout")
+    return decode_layout(raw)
 
 
 def _resolve(sr: dict, alias2ent: dict) -> str | None:
@@ -103,12 +100,17 @@ def check_layout(layout: dict, registry: dict) -> list[str]:
             sv = cfg.get("singleVisual") or {}
             vt = sv.get("visualType")
             if not vt:
+                # `singleVisualGroup` - a structural grouping container, not a visual.
+                if cfg.get("singleVisualGroup"):
+                    continue
                 errs.append(f"{w}: no visualType")
                 continue
             proj = sv.get("projections") or {}
-            if not proj:
+            if not proj and vt not in DECORATIVE_VISUAL_TYPES:
                 errs.append(f"{w}: {vt} has no projections (renders empty)")
             allowed = ALLOWED.get(vt)
+            if allowed is None and vt in DECORATIVE_VISUAL_TYPES:
+                continue  # decorative visual: no data roles to validate
             if allowed is None:
                 errs.append(f"{w}: unknown visualType '{vt}'")
             else:

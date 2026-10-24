@@ -27,8 +27,14 @@ def _srgb_channel(v: float) -> float:
 
 
 def _luminance(hex_color: str) -> float:
+    """WCAG relative luminance; raises ValueError when the value is not a hex."""
     h = _hex_norm(hex_color)
-    r, g, b = (int(h[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    if len(h) != 7:
+        raise ValueError(f"not a hex color: {hex_color!r}")
+    try:
+        r, g, b = (int(h[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    except ValueError as exc:
+        raise ValueError(f"not a hex color: {hex_color!r}") from exc
     return (
         0.2126 * _srgb_channel(r)
         + 0.7152 * _srgb_channel(g)
@@ -71,6 +77,19 @@ def background_findings(
             )
         )
     if text_color:
+        fg, bg = _hex_norm(text_color), _hex_norm(background)
+        if len(fg) != 7 or len(bg) != 7:
+            out.append(
+                Finding(
+                    "BG-CONTRAST",
+                    "warning",
+                    "Text/background contrast could not be assessed "
+                    "(a color is not a hex value).",
+                    f"text={text_color} bg={background}",
+                    category="background",
+                )
+            )
+            return out
         ratio = contrast_ratio(text_color, background)
         if ratio < MIN_CONTRAST_RATIO:
             out.append(

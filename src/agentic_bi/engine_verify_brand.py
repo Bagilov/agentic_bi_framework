@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 from agentic_bi.engine_verify_core import CheckResult, _check
+from agentic_bi.layout_meta import decode_layout
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def extract_report_theme(pbix: Path) -> dict:
     with zipfile.ZipFile(pbix) as z:
         names = z.namelist()
         try:
-            layout = json.loads(z.read("Report/Layout").decode("utf-16-le"))
+            layout = decode_layout(z.read("Report/Layout"))
         except (KeyError, ValueError):
             return {}
         theme_name = layout.get("theme")

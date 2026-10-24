@@ -1,8 +1,9 @@
 """Evaluation of extracted observations against the brand rules.
 
 Colour math (neutral test, luminance, contrast) and font-weight parsing live in
-`brand_audit_math`; this module owns the rule dispatch and the individual rules
-(colors, fonts, contrast, background, document-level, font size).
+`brand_audit_math`; typography rules (family/weight/size) live in
+`brand_audit_typography`; this module owns the dispatch plus the colour,
+contrast, background and document-level rules.
 
 Public API:
     evaluate_observations(obs, cfg, rep) -> None
@@ -16,12 +17,15 @@ from agentic_bi.brand_audit_math import (
     contrast as _contrast,
 )
 from agentic_bi.brand_audit_math import (
-    font_weight as _font_weight,
-)
-from agentic_bi.brand_audit_math import (
     is_neutral as _is_neutral,
 )
 from agentic_bi.brand_audit_types import AuditFinding, AuditReport
+from agentic_bi.brand_audit_typography import (
+    eval_font as _eval_font,
+)
+from agentic_bi.brand_audit_typography import (
+    eval_font_size as _eval_font_size,
+)
 from agentic_bi.brand_config import BrandConfig, normalize_hex
 from agentic_bi.brand_eval import is_brand_font
 
@@ -67,81 +71,44 @@ def _eval_colors(o: Observation, cfg: BrandConfig, rep: AuditReport) -> None:
         )
 
 
-def _is_allowed_font(name: str, allowed: set[str], fallback: set[str]) -> bool:
-    """Whether a family is allowed: a brand family or a system fallback."""
-    low = str(name).lower().strip()
-    if not low:
-        return True
-    if is_brand_font(low):
-        # brand font - but must match a specific allowed family
-        return any(a in low for a in allowed)
-    return any(fb in low for fb in fallback)
-
-
-def _eval_font(
-    o: Observation,
-    cfg: BrandConfig,
-    rep: AuditReport,
-    ignore_fonts: set[str],
-    fallback: set[str],
-    allowed_fonts: set[str],
-    allowed_weights: set[str],
-) -> None:
-    """Evaluate a family/weight observation."""
-    if not cfg.rules.get("check_fonts", True):
-        return
-    fn = o.value.lower().strip()
-    if o.kind == "font":
-        if fn in ignore_fonts:
-            return
-        if _is_allowed_font(o.value, allowed_fonts, fallback):
-            return
-        _mk(
-            rep,
-            cfg,
-            "FONT-FAMILY-BRAND",
-            None,
-            "font",
-            o.location,
-            f"Family '{o.value}' is not a brand one.",
-            o.value,
-            "allowed: brand fonts or a system fallback",
-        )
-    elif o.kind == "font_weight":
-        if not allowed_weights or not is_brand_font(o.value):
-            return  # only check weight for brand families
-        w = _font_weight(o.value)
-        if w and w not in allowed_weights:
-            _mk(
-                rep,
-                cfg,
-                "FONT-WEIGHT-ALLOWED",
-                None,
-                "font",
-                o.location,
-                f"Disallowed weight '{w}' on {o.value}.",
-                o.value,
-                "allowed: " + ", ".join(cfg.weights),
-            )
-
-
 def _eval_contrast(
     text_colors: list[tuple[str, str]],
     backgrounds: list[tuple[str, str]],
     cfg: BrandConfig,
     rep: AuditReport,
 ) -> None:
-    """Check text-to-background contrast (WCAG AA)."""
+    """Check text-to-background contrast (WCAG AA).
+
+    Only a background that resolves to a real hex color can be measured; an
+    unknown background is NOT replaced with white (that would silently pass a
+    light-on-dark violation), the text colors are reported as un-assessed once.
+    """
     if not cfg.rules.get("check_contrast", True):
         return
-    bg_default = backgrounds[0][0] if backgrounds else "#ffffff"
+    valid_bg = [h for h, _ in backgrounds if h]
     min_c = float(cfg.min_contrast)
     skip_brand = bool(cfg.audit.get("contrast_skip_brand", True))
-    for h, loc in text_colors:
-        if not h or _is_neutral(h):
-            continue
-        if skip_brand and cfg.match(h) is not None:
-            continue  # brand colors are sanctioned by the style guide
+    checked = [
+        (h, loc)
+        for h, loc in text_colors
+        if h and not _is_neutral(h) and not (skip_brand and cfg.match(h) is not None)
+    ]
+    if not valid_bg:
+        if checked:
+            _mk(
+                rep,
+                cfg,
+                "BG-CONTRAST",
+                None,
+                "background",
+                checked[0][1],
+                "Background is unknown - text contrast could not be assessed.",
+                "",
+                "declare the slide/theme background so contrast can be measured",
+            )
+        return
+    bg_default = valid_bg[0]
+    for h, loc in checked:
         ratio = _contrast(h, bg_default)
         if ratio < min_c:
             _mk(
@@ -254,28 +221,6 @@ def _eval_document_rules(
             )
 
 
-def _eval_font_size(o: Observation, cfg: BrandConfig, rep: AuditReport) -> None:
-    """Check the font-size step (non-designer values)."""
-    if not cfg.audit.get("check_font_size", False):
-        return
-    try:
-        size = float(o.value)
-    except ValueError:
-        return
-    step = int(cfg.check_size_step or 0)
-    if step and round(size / step) != size / step:
-        _mk(
-            rep,
-            cfg,
-            "FONT-SIZE-STEP",
-            "info",
-            "font",
-            o.location,
-            f"Size {size}pt is not a multiple of {step}pt (non-designer step).",
-            o.value,
-        )
-
-
 def evaluate_observations(
     obs: list[Observation], cfg: BrandConfig, rep: AuditReport
 ) -> None:
@@ -296,12 +241,24 @@ def evaluate_observations(
                 _eval_colors(o, cfg, rep)
         elif o.kind == "background":
             backgrounds.append((normalize_hex(o.value), o.location))
+        elif o.kind == "unresolved_paint":
+            _mk(
+                rep,
+                cfg,
+                "PAINT-UNRESOLVED",
+                None,
+                "color",
+                o.location,
+                f"Fill/line color could not be read ({o.context}) - not checked.",
+                "",
+                "gradient/pattern/picture fills are outside the palette check",
+            )
         elif o.kind in ("font", "font_weight"):
             _eval_font(
-                o, cfg, rep, ignore_fonts, fallback, allowed_fonts, allowed_weights
+                o, cfg, rep, ignore_fonts, fallback, allowed_fonts, allowed_weights, _mk
             )
         elif o.kind == "font_size":
-            _eval_font_size(o, cfg, rep)
+            _eval_font_size(o, cfg, rep, _mk)
 
     text_colors = (
         [

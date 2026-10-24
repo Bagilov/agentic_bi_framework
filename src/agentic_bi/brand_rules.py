@@ -68,6 +68,14 @@ RULES: tuple[dict, ...] = (
         "source": "brand book, color section",
     },
     {
+        "id": "PAINT-UNRESOLVED",
+        "level": "info",
+        "category": "color",
+        "rule": "A fill/line color could not be read (gradient/pattern/picture); "
+        "it is outside the palette check and reported instead of skipped.",
+        "source": "audit coverage guard",
+    },
+    {
         "id": "BRAND-PRIMARY-COLORS-MIN",
         "level": "warning",
         "category": "color",

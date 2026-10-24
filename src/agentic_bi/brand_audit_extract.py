@@ -226,13 +226,32 @@ def _shape_observations(
 def _paint_observations(
     shape, kind: str, loc: str, theme: ThemeResolver
 ) -> list[Observation]:
+    """Observations for one shape fill or line.
+
+    A solid fill/line with an unresolvable color (a gradient, a pattern, a picture
+    or a broken theme link) is reported as an `unresolved_paint` observation
+    instead of being dropped: the audit must not silently skip a color it failed
+    to read, or a violation would pass as "no finding".
+    """
     try:
         if kind == "fill":
             fill = shape.fill
-            if fill.type is not None and "SOLID" in str(fill.type):
+            ftype = str(fill.type) if fill.type is not None else ""
+            if "SOLID" in ftype:
                 h, t = color_hex(fill.fore_color, theme)
                 if h:
                     return [Observation("fill", h, f"{loc} / fill", from_theme=t)]
+                return [
+                    Observation(
+                        "unresolved_paint", "", f"{loc} / fill", "solid fill, no color"
+                    )
+                ]
+            if ftype and "BACKGROUND" not in ftype:
+                return [
+                    Observation(
+                        "unresolved_paint", "", f"{loc} / fill", f"fill type {ftype}"
+                    )
+                ]
         else:
             h, t = color_hex(shape.line.color, theme)
             if h:

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from agentic_bi.layout_meta import decode_layout, iter_layout_visuals
 
 logger = logging.getLogger(__name__)
 
@@ -105,17 +106,14 @@ def _check(name: str, ok: bool, detail: str = "", critical: bool = True) -> Chec
 
 
 def load_layout(pbix: Path) -> dict:
-    """Read `Report/Layout` from a `.pbix` as a dict."""
+    """Read `Report/Layout` from a `.pbix` as a dict (encoding is sniffed)."""
     with zipfile.ZipFile(pbix) as z:
-        return json.loads(z.read("Report/Layout").decode("utf-16-le"))
+        return decode_layout(z.read("Report/Layout"))
 
 
 def _iter_visuals(layout: dict):
     """Iterator (page_name, singleVisual, container) over all visuals."""
-    for s in layout.get("sections", []):
-        for c in s.get("visualContainers", []):
-            cfg = json.loads(c["config"])
-            yield s.get("displayName"), cfg.get("singleVisual", {}), c
+    return iter_layout_visuals(layout)
 
 
 def spec_objects(spec: dict) -> tuple[dict[str, set[str]], set[str]]:

@@ -14,6 +14,7 @@ from agentic_bi.engine_verify_core import (
     _resolve_qref,
     spec_objects,
 )
+from agentic_bi.layout_meta import DECORATIVE_VISUAL_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +82,20 @@ def verify_layout(
                 )
 
     visuals = list(_iter_visuals(layout))
+
+    # Decorative visuals (textbox/shape/image/navigators/...) legitimately carry
+    # no projections; only data visuals must project fields. A container without a
+    # visualType is a structural group (`singleVisualGroup`), not a data visual.
+    def _is_data_visual(sv: dict) -> bool:
+        vt = sv.get("visualType")
+        return bool(vt) and vt not in DECORATIVE_VISUAL_TYPES
+
     no_proj = [
-        sv.get("visualType") for _, sv, _ in visuals if not sv.get("projections")
+        sv.get("visualType")
+        for _, sv, _ in visuals
+        if _is_data_visual(sv) and not sv.get("projections")
     ]
-    out.append(_check("all visuals have projections", not no_proj, str(no_proj)))
+    out.append(_check("all data visuals have projections", not no_proj, str(no_proj)))
     if expected_types is not None:
         bad = [
             sv.get("visualType")
@@ -102,11 +113,21 @@ def verify_bindings(
 
     The check is done against the build spec (tables/measures). If `model_cols`
     is passed (from pbixray), the real model columns are also compared.
+
+    Names are matched case-insensitively: Power BI resolves table/column names
+    without regard to case in DAX, so a layout that preserves a different case
+    (a donor/patch file) must not fail the build.
     """
     tables, measures = spec_objects(spec)
     known_tables = set(tables)
     if model_cols:
         known_tables |= set(model_cols)
+    known_lower = {t.lower(): t for t in known_tables}
+    measures_lower = {m.lower() for m in measures}
+    cols_lower = {
+        t.lower(): {c.lower() for c in cols}
+        for t, cols in (model_cols or tables).items()
+    }
     bad: list[str] = []
     for page, sv, _ in _iter_visuals(layout):
         vt = sv.get("visualType")
@@ -118,12 +139,17 @@ def verify_bindings(
                     bad.append(f"{page}/{vt}/{role}: '{qref}' without table.column")
                     continue
                 table, col = inner.rsplit(".", 1)
-                if table not in known_tables:
+                real_table = known_lower.get(table.lower())
+                if real_table is None:
                     bad.append(f"{page}/{vt}/{role}: no table '{table}'")
                     continue
-                cols = (model_cols or {}).get(table) or tables.get(table)
-                if cols is not None and col not in cols and col not in measures:
-                    bad.append(f"{page}/{vt}/{role}: no column '{table}.{col}'")
+                cols = cols_lower.get(real_table.lower())
+                if (
+                    cols is not None
+                    and col.lower() not in cols
+                    and col.lower() not in measures_lower
+                ):
+                    bad.append(f"{page}/{vt}/{role}: no column '{real_table}.{col}'")
     return [_check("all projected fields resolve", not bad, str(bad[:5]))]
 
 
