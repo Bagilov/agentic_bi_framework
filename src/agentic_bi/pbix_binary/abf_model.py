@@ -226,19 +226,24 @@ def parse_virtual_directory(buf: bytes) -> list[VFile]:
 
 
 def serialize_virtual_directory(files: list[VFile]) -> bytes:
-    """Serialize virtual-directory entries (UTF-8, no BOM) back to XML bytes."""
-    parts = ["<VirtualDirectory>"]
+    """Serialize virtual-directory entries (UTF-8, no BOM) back to XML bytes.
+
+    Built with `ElementTree` rather than string interpolation so member paths are
+    escaped: the parser decodes entities, so a path containing ``&``/``<``/``>``
+    would otherwise round-trip into a malformed document. No XML declaration is
+    emitted, matching what the engine writes.
+    """
+    root = ET.Element("VirtualDirectory")
     for f in files:
-        parts.append(
-            f"<BackupFile><Path>{f.path}</Path><Size>{f.size}</Size>"
-            f"<m_cbOffsetHeader>{f.offset}</m_cbOffsetHeader>"
-            f"<Delete>{'true' if f.delete else 'false'}</Delete>"
-            f"<CreatedTimestamp>{f.created_ts}</CreatedTimestamp>"
-            f"<Access>{f.access}</Access>"
-            f"<LastWriteTime>{f.last_write}</LastWriteTime></BackupFile>"
-        )
-    parts.append("</VirtualDirectory>")
-    return "".join(parts).encode("utf-8")
+        entry = ET.SubElement(root, "BackupFile")
+        ET.SubElement(entry, "Path").text = f.path
+        ET.SubElement(entry, "Size").text = str(f.size)
+        ET.SubElement(entry, "m_cbOffsetHeader").text = str(f.offset)
+        ET.SubElement(entry, "Delete").text = "true" if f.delete else "false"
+        ET.SubElement(entry, "CreatedTimestamp").text = str(f.created_ts)
+        ET.SubElement(entry, "Access").text = str(f.access)
+        ET.SubElement(entry, "LastWriteTime").text = str(f.last_write)
+    return ET.tostring(root, encoding="unicode").encode("utf-8")
 
 
 def parse_backup_log(buf: bytes) -> BackupLog:
