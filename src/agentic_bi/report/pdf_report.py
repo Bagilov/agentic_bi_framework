@@ -9,6 +9,8 @@ Assembles the full lineage page into a single multi-page PDF:
 
 Requires the ``report`` optional extra: ``reportlab`` (and ``Pillow`` for the
 diagram, ``pandas``/``openpyxl`` for the Excel export).
+
+CLI exit codes: 0 on success, 2 on a bad input (missing/unreadable JSON/.pbix).
 """
 
 from __future__ import annotations
@@ -232,9 +234,12 @@ def _plantuml_for(src: Path, data: dict) -> str:
     return ""
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import run_boundary
+
     parser = argparse.ArgumentParser(
-        description="Build a multi-page PDF lineage report from JSON/.pbix."
+        prog="agentic-bi-report",
+        description="Build a multi-page PDF lineage report from JSON/.pbix.",
     )
     parser.add_argument("input", help="path to lineage.json or .pbix")
     parser.add_argument(
@@ -256,45 +261,49 @@ def main() -> None:
     )
     parser.add_argument("--no-diagram", action="store_true")
     parser.add_argument("--verbose", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
-    )
+    def body() -> int:
+        logging.basicConfig(
+            level=logging.DEBUG if args.verbose else logging.INFO,
+            format="%(levelname)s: %(message)s",
+        )
 
-    from agentic_bi.report.lineage_table import load_json
+        from agentic_bi.report.lineage_table import load_json
 
-    data = load_json(args.input)
-    plantuml = ""
-    if not args.no_diagram and find_plantuml_jar():
-        try:
-            plantuml = _plantuml_for(Path(args.input), data)
-        except Exception as exc:  # noqa: BLE001 - diagram is best-effort
-            logger.warning("could not build PlantUML: %s", exc)
+        data = load_json(args.input)
+        plantuml = ""
+        if not args.no_diagram and find_plantuml_jar():
+            try:
+                plantuml = _plantuml_for(Path(args.input), data)
+            except Exception as exc:  # noqa: BLE001 - diagram is best-effort
+                logger.warning("could not build PlantUML: %s", exc)
 
-    inp = Path(args.input)
-    if args.output:
-        out = args.output
-    else:
-        # Timestamped default so repeated runs never overwrite each other.
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = str(inp.with_name(f"{inp.stem}_{stamp}.pdf"))
-    build_report(
-        data,
-        out,
-        plantuml=plantuml,
-        title=args.title,
-        source_name=Path(args.input).name,
-        page_size=args.page_size,
-        orientation=args.orientation,
-        font_ttf=args.font,
-        max_level=args.max_level,
-        include_visuals=not args.no_visuals,
-        with_diagram=not args.no_diagram,
-    )
-    print(f"PDF report saved: {out}")
+        inp = Path(args.input)
+        if args.output:
+            out = args.output
+        else:
+            # Timestamped default so repeated runs never overwrite each other.
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out = str(inp.with_name(f"{inp.stem}_{stamp}.pdf"))
+        build_report(
+            data,
+            out,
+            plantuml=plantuml,
+            title=args.title,
+            source_name=Path(args.input).name,
+            page_size=args.page_size,
+            orientation=args.orientation,
+            font_ttf=args.font,
+            max_level=args.max_level,
+            include_visuals=not args.no_visuals,
+            with_diagram=not args.no_diagram,
+        )
+        print(f"PDF report saved: {out}")
+        return 0
+
+    return run_boundary(body, prog="agentic-bi-report")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

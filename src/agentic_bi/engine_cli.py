@@ -9,6 +9,8 @@ By default the build ends with a reverse self-test (--verify), including a check
 of the report theme against the brand style guide (--verify-brand). Disable
 with `--no-verify` / `--no-brand-verify`. `--verify-strict` (default) fails the
 build on a failed check; `--brand-strict` also makes brand errors critical.
+
+Exit codes: 0 on success, 1 when the build/verify/oracle fails, 2 on a bad input.
 """
 
 from __future__ import annotations
@@ -34,9 +36,13 @@ def _parse_pages(raw: str | None) -> dict[str, int] | None:
     return pages or None
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import run_boundary
+
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        prog="agentic-bi-engine",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--data", required=True)
     ap.add_argument("--table", required=True)
@@ -115,41 +121,47 @@ def main() -> int:
         help="treat brand errors as build failures (e.g. BRAND-ACCENT-MANDATORY)",
     )
     ap.add_argument("--report", default=None)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    db = args.database or (Path(args.out).stem + "_db")
-    pipe = EnginePipeline(template=Path(args.template), desktop=args.desktop)
-    pages = _parse_pages(args.assert_pages)
-    result = pipe.run(
-        Path(args.data),
-        args.table,
-        db,
-        Path(args.out),
-        check_oracle=args.oracle,
-        hold=args.hold,
-        clean_layout=not args.keep_donor_layout,
-        verify=args.verify,
-        strict_verify=args.strict_verify,
-        pages=pages,
-        sample=args.sample,
-        model_verify=args.model_verify,
-        strict_soft=args.strict_soft,
-        brand_verify=args.brand_verify,
-        brand_strict=args.brand_strict,
-    )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    if args.report:
-        Path(args.report).write_text(
-            f"# engine pbix\n\n- data: `{args.data}`\n- rows: {result['rows']}\n"
-            f"- layout: {result['layout']}\n- out: `{result['out']}` "
-            f"({result['pbix_bytes']} B)\n- verify: {result.get('verify', 'n/a')}\n"
-            f"- oracle: {result['oracle']}\n",
-            encoding="utf-8",
+    def body() -> int:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+        db = args.database or (Path(args.out).stem + "_db")
+        pipe = EnginePipeline(template=Path(args.template), desktop=args.desktop)
+        pages = _parse_pages(args.assert_pages)
+        result = pipe.run(
+            Path(args.data),
+            args.table,
+            db,
+            Path(args.out),
+            check_oracle=args.oracle,
+            hold=args.hold,
+            clean_layout=not args.keep_donor_layout,
+            verify=args.verify,
+            strict_verify=args.strict_verify,
+            pages=pages,
+            sample=args.sample,
+            model_verify=args.model_verify,
+            strict_soft=args.strict_soft,
+            brand_verify=args.brand_verify,
+            brand_strict=args.brand_strict,
         )
-    if result.get("verify") == "FAILED":
-        return 1
-    return 0 if result["oracle"] in ("MODEL_LOADED", "SKIPPED") else 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.report:
+            Path(args.report).write_text(
+                f"# engine pbix\n\n- data: `{args.data}`\n- rows: {result['rows']}\n"
+                f"- layout: {result['layout']}\n- out: `{result['out']}` "
+                f"({result['pbix_bytes']} B)\n- verify: {result.get('verify', 'n/a')}\n"
+                f"- oracle: {result['oracle']}\n",
+                encoding="utf-8",
+            )
+        # Any non-ok verify verdict fails the run (the engine sets "ok" or
+        # "FAILED", but a future/missing value must not read as success).
+        verify = result.get("verify")
+        if verify is not None and verify != "ok":
+            return 1
+        return 0 if result["oracle"] in ("MODEL_LOADED", "SKIPPED") else 1
+
+    return run_boundary(body, prog="agentic-bi-engine")
 
 
 if __name__ == "__main__":

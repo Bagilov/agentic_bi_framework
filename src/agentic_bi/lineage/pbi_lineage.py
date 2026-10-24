@@ -119,13 +119,16 @@ from agentic_bi.lineage.lineage_origins import load_origins  # noqa: E402
 # --------------------------------------------------------------------------- #
 #  CLI
 # --------------------------------------------------------------------------- #
-def main():
+def main(argv: list[str] | None = None) -> int:
     import argparse
     import json as _json
 
+    from agentic_bi.cli_support import run_boundary
+
     parser = argparse.ArgumentParser(
+        prog="agentic-bi-lineage",
         description="Build data lineage of a Power BI dashboard (.pbix).\n"
-        "Process: input .pbix -> output JSON with the analysis structure."
+        "Process: input .pbix -> output JSON with the analysis structure.",
     )
     parser.add_argument("pbix", help="path to the .pbix file (input)")
     parser.add_argument(
@@ -166,41 +169,45 @@ def main():
         metavar="brand_config.yaml",
         help="brand rules config (page compliance metrics)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    aliases = {}
-    for a in args.alias:
-        if "=" in a:
-            k, _, v = a.partition("=")
-            aliases[k] = v
+    def body() -> int:
+        aliases = {}
+        for a in args.alias:
+            if "=" in a:
+                k, _, v = a.partition("=")
+                aliases[k] = v
 
-    out_dir = (
-        Path(args.out_dir)
-        if args.out_dir
-        else (Path(__file__).resolve().parent / "output_files" / "pbi_lineage")
-    )
-    out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = (
+            Path(args.out_dir) if args.out_dir else Path("output_files") / "pbi_lineage"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    with PbiLineage(args.pbix, aliases, brand_config=args.brand_config) as lg:
-        # main output - the structured JSON
-        if args.print_json:
-            # JSON to stdout (minimal object; plantuml per flag)
-            print(_json.dumps(lg.to_json(), ensure_ascii=False, indent=2))
-        else:
-            if not args.no_json:
-                json_path = (
-                    Path(args.json_out) if args.json_out else out_dir / "lineage.json"
-                )
-                p = lg.export_json(json_path)
-                print("JSON export:", p)
-            lg.print_summary()
-            if not args.no_xlsx:
-                p = lg.export_excel(out_dir / "lineage.xlsx")
-                print("Excel export:", p)
-            if not args.no_md:
-                p = lg.export_markdown(out_dir / "REPORT.md")
-                print("Markdown export:", p)
+        with PbiLineage(args.pbix, aliases, brand_config=args.brand_config) as lg:
+            # main output - the structured JSON
+            if args.print_json:
+                # JSON to stdout (minimal object; plantuml per flag)
+                print(_json.dumps(lg.to_json(), ensure_ascii=False, indent=2))
+            else:
+                if not args.no_json:
+                    json_path = (
+                        Path(args.json_out)
+                        if args.json_out
+                        else out_dir / "lineage.json"
+                    )
+                    p = lg.export_json(json_path)
+                    print("JSON export:", p)
+                lg.print_summary()
+                if not args.no_xlsx:
+                    p = lg.export_excel(out_dir / "lineage.xlsx")
+                    print("Excel export:", p)
+                if not args.no_md:
+                    p = lg.export_markdown(out_dir / "REPORT.md")
+                    print("Markdown export:", p)
+        return 0
+
+    return run_boundary(body, prog="agentic-bi-lineage")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

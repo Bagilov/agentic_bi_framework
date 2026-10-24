@@ -84,7 +84,7 @@ def run(args: argparse.Namespace) -> dict:
         # Windows + Power BI Desktop: build the model via the AS engine.
         datamodel = pipe.build_datamodel(spec)
     else:
-        raise SystemExit(
+        raise ValueError(
             "test build needs a DataModel: pass --datamodel <model.abf> on "
             "non-Windows hosts (the AS engine requires Windows + Power BI Desktop)"
         )
@@ -118,8 +118,11 @@ def run(args: argparse.Namespace) -> dict:
     return result
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import run_boundary
+
     ap = argparse.ArgumentParser(
+        prog="agentic-bi-test-build",
         description="Build and validate a .pbix test build.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -148,20 +151,23 @@ def main() -> int:
         help="also read the model back via pbixray (needs readback)",
     )
     ap.add_argument("--report", default=None, help="write the JSON result here")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     if not args.database:
         args.database = Path(args.out).stem + "_db"
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    result = run(args)
-    text = json.dumps(result, ensure_ascii=False, indent=2)
-    print(text)
-    if args.report:
-        Path(args.report).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.report).write_text(text, encoding="utf-8")
+    def body() -> int:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+        result = run(args)
+        text = json.dumps(result, ensure_ascii=False, indent=2)
+        print(text)
+        if args.report:
+            Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.report).write_text(text, encoding="utf-8")
 
-    ok = not result["visual_errors"] and result["verify_ok"]
-    return 0 if ok else 1
+        ok = not result["visual_errors"] and result["verify_ok"]
+        return 0 if ok else 1
+
+    return run_boundary(body, prog="agentic-bi-test-build")
 
 
 if __name__ == "__main__":

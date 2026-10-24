@@ -1,14 +1,18 @@
 """CLI for member-level `.pbix` patching (`apply_patches` / ABF inspection).
 
 Usage:
-    # apply a patch spec, optionally verifying the output opens in Desktop
+    # apply a patch spec; the written .pbix is re-read and verified before exit
     agentic-bi-pbix-patch apply --pbix template.pbix --spec patch.json \
         --out out.pbix [--report report.md]
 
     # list the ABF members of a .pbix (storage path + logical name + size)
     agentic-bi-pbix-patch members --pbix template.pbix [--json members.json]
 
-Exit codes: 0 on success, 2 on a patch error (invalid spec / unmatched pattern).
+Self-verification covers the archive and the `DataModel` inside it; it does not
+open the report in Power BI Desktop.
+
+Exit codes: 0 on success, 2 on a bad input (unreadable .pbix/spec) or a patch
+error (invalid spec, unmatched or ambiguous pattern, failed self-verification).
 """
 
 from __future__ import annotations
@@ -98,13 +102,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point."""
+    """CLI entry point: apply/patch a `.pbix`, exit 0/1/2 (2 = bad input).
+
+    Every user-facing failure is exit 2: a `PatchError` (invalid spec, ambiguous
+    pattern, failed self-verification), an unreadable `.pbix`/spec (`OSError`), or
+    a malformed spec (`ValueError` — a bad JSON document raises `JSONDecodeError`).
+    """
+    from agentic_bi.cli_support import run_boundary
+
     args = build_parser().parse_args(argv)
-    try:
-        return args.func(args)
-    except PatchError as exc:
-        print(f"patch error: {exc}", file=sys.stderr)
-        return 2
+
+    def body() -> int:
+        try:
+            return args.func(args)
+        except PatchError as exc:
+            print(f"patch error: {exc}", file=sys.stderr)
+            return 2
+
+    return run_boundary(body, prog="agentic-bi-pbix-patch")
 
 
 if __name__ == "__main__":

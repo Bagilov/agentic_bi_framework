@@ -32,6 +32,9 @@ Public API:
     ThemeResolver  - resolves theme (scheme) colors to HEX
     audit_pptx(path, cfg=None)      -> AuditReport
     audit_document(path, cfg=None)  -> AuditReport   (pptx/docx/xlsx)
+
+CLI exit codes: 0 normally (findings are reported, not fatal), 1 when `--fail-on`
+is set and matched, 2 on a bad input (unreadable config / unsupported format).
 """
 
 from __future__ import annotations
@@ -112,8 +115,11 @@ def audit_document(path: str | Path, cfg: BrandConfig | None = None) -> AuditRep
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    from agentic_bi.cli_support import run_boundary
+
     ap = argparse.ArgumentParser(
-        description="Audit a document for brand-style compliance"
+        prog="agentic-bi-brand-audit",
+        description="Audit a document for brand-style compliance",
     )
     ap.add_argument("document", help="path to a .pptx")
     ap.add_argument("--config", default=None, help="brand_config.yaml/json")
@@ -126,18 +132,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
-    cfg = BrandConfig.load(args.config) if args.config else BrandConfig.default()
-    rep = audit_document(args.document, cfg)
-    print(rep.format(max_findings=int(cfg.audit.get("max_findings", 0) or 0)))
-    if args.json_out:
-        rep.to_json(args.json_out)
-        print(f"\nJSON: {args.json_out}")
+    def body() -> int:
+        cfg = BrandConfig.load(args.config) if args.config else BrandConfig.default()
+        rep = audit_document(args.document, cfg)
+        print(rep.format(max_findings=int(cfg.audit.get("max_findings", 0) or 0)))
+        if args.json_out:
+            rep.to_json(args.json_out)
+            print(f"\nJSON: {args.json_out}")
 
-    if args.fail_on == "error" and rep.errors:
-        return 1
-    if args.fail_on == "warning" and (rep.errors or rep.warnings):
-        return 1
-    return 0
+        if args.fail_on == "error" and rep.errors:
+            return 1
+        if args.fail_on == "warning" and (rep.errors or rep.warnings):
+            return 1
+        return 0
+
+    return run_boundary(body, prog="agentic-bi-brand-audit")
 
 
 if __name__ == "__main__":

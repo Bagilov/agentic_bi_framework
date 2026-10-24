@@ -22,13 +22,15 @@ The data source is a `.pbix` (via `PbiLineage`), from which `power_query` (M cod
 Usage:
     python -m agentic_bi.antipatterns.pbi_antipatterns "C:\\path\\to\\report.pbix" -o out.json
     python -m agentic_bi.antipatterns.pbi_antipatterns "C:\\path\\to\\report.pbix" --summary
+
+CLI exit codes: 0 on success, 2 on a bad input (missing/unreadable .pbix).
+Default output is `output_files/<name>_antipatterns.json` (relative to the CWD).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -152,10 +154,13 @@ def _write(data: dict, out: Path) -> Path:
     return out
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import fail, run_boundary
+
     parser = argparse.ArgumentParser(
+        prog="agentic-bi-antipatterns",
         description="Antipattern analysis of Power BI calculations (source M code + DAX inside the board).\n"
-        "Output: JSON with an antipattern metric tied to the level (source/measure/calc/table/board)."
+        "Output: JSON with an antipattern metric tied to the level (source/measure/calc/table/board).",
     )
     parser.add_argument("pbix", help="path to the .pbix file")
     parser.add_argument(
@@ -167,34 +172,34 @@ def main():
     parser.add_argument(
         "--summary", action="store_true", help="print a short console summary"
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     pbix = Path(args.pbix)
     if not pbix.exists():
-        sys.exit(f"Input not found: {pbix}")
+        return fail("agentic-bi-antipatterns", f"input not found: {pbix}")
 
-    data = analyze_pbix(str(pbix))
-    out = (
-        Path(args.output)
-        if args.output
-        else (
-            Path(__file__).resolve().parent
-            / "output_files"
-            / f"{pbix.stem}_antipatterns.json"
+    def body() -> int:
+        data = analyze_pbix(str(pbix))
+        out = (
+            Path(args.output)
+            if args.output
+            else Path("output_files") / f"{pbix.stem}_antipatterns.json"
         )
-    )
-    _write(data, out)
-    print(f"Antipatterns saved: {out}")
-    if args.summary:
-        s = data["summary"]
-        print(f"Total findings: {s['total_findings']} (critical: {s['critical']})")
-        for lv, cnt in s["by_level"].items():
-            print(f"  {lv:12} {cnt}")
-        print("By type:")
-        for aid, cnt in sorted(s["by_id"].items(), key=lambda kv: -kv[1]):
-            name = _registry().get(aid).name if _registry().get(aid) else aid
-            print(f"  {aid:32} x{cnt}  {name}")
+        _write(data, out)
+        print(f"Antipatterns saved: {out}")
+        if args.summary:
+            s = data["summary"]
+            print(f"Total findings: {s['total_findings']} (critical: {s['critical']})")
+            for lv, cnt in s["by_level"].items():
+                print(f"  {lv:12} {cnt}")
+            print("By type:")
+            for aid, cnt in sorted(s["by_id"].items(), key=lambda kv: -kv[1]):
+                name = _registry().get(aid).name if _registry().get(aid) else aid
+                print(f"  {aid:32} x{cnt}  {name}")
+        return 0
+
+    return run_boundary(body, prog="agentic-bi-antipatterns")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

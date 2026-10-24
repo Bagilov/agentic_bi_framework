@@ -13,6 +13,8 @@ The role tables follow real Power BI samples (see module docs of
     layout_from_pbix(pbix) -> dict
     check_layout(layout, registry) -> list[str]
     check_pbix(pbix, registry) -> list[str]
+
+CLI exit codes: 0 when no errors, 1 when errors are found, 2 on a bad input.
 """
 
 from __future__ import annotations
@@ -173,19 +175,28 @@ def check_pbix(pbix: str | Path, registry: dict) -> list[str]:
     return check_layout(layout_from_pbix(pbix), registry)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    ap = argparse.ArgumentParser(description="Validate a .pbix Report/Layout.")
+    from agentic_bi.cli_support import run_boundary
+
+    ap = argparse.ArgumentParser(
+        prog="agentic-bi-visual-check",
+        description="Validate a .pbix Report/Layout.",
+    )
     ap.add_argument("pbix")
     ap.add_argument("registry", help="JSON file {table:{columns,measures}}")
-    args = ap.parse_args()
-    reg = json.loads(Path(args.registry).read_text())
-    errs = check_pbix(args.pbix, reg)
-    print(f"ERRORS: {len(errs)}")
-    for e in errs:
-        print("  -", e)
-    return 1 if errs else 0
+    args = ap.parse_args(argv)
+
+    def body() -> int:
+        reg = json.loads(Path(args.registry).read_text(encoding="utf-8"))
+        errs = check_pbix(args.pbix, reg)
+        print(f"ERRORS: {len(errs)}")
+        for e in errs:
+            print("  -", e)
+        return 1 if errs else 0
+
+    return run_boundary(body, prog="agentic-bi-visual-check")
 
 
 if __name__ == "__main__":
