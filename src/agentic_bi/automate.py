@@ -42,6 +42,17 @@ DEFAULT_NAME = "api_rebuild_test"
 DEFAULT_FOLDER = "/Target/Dev"
 
 
+def _odata_quote(value: str) -> str:
+    """Escape a string literal for an OData `Path='...'` filter.
+
+    Kept as a thin alias of `reportserver.odata.odata_quote` (the one shared
+    escaper) so existing callers/tests keep working.
+    """
+    from agentic_bi.reportserver.odata import odata_quote
+
+    return odata_quote(value)
+
+
 def verify_published(
     server: str,
     folder_path: str,
@@ -69,7 +80,9 @@ def verify_published(
     session.auth = HttpNegotiateAuth()
     session.headers.update({"Accept": "application/json"})
 
-    url = f"https://{server}{base}{api}/CatalogItems(Path='{server_path}')"
+    url = (
+        f"https://{server}{base}{api}/CatalogItems(Path='{_odata_quote(server_path)}')"
+    )
     r = session.get(url, timeout=timeout)
     if r.status_code != 200:
         logger.error("Verify: %s -> HTTP %s %s", url, r.status_code, r.text[:300])

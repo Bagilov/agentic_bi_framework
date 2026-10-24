@@ -36,6 +36,33 @@ def _fragile_json_expand(m_code: str) -> bool:
     return False
 
 
+def _calculate_without_filter(expr: str) -> bool:
+    """Whether a `CALCULATE(...)` call has no top-level filter argument.
+
+    Scans each `CALCULATE(` occurrence with balanced parentheses so a nested call
+    (`CALCULATE(SUM([A]))`) is seen in full; it is a smell only when there is no
+    comma at the top level of that call (a comma would introduce a filter).
+    """
+    upper = expr.upper()
+    idx = upper.find("CALCULATE(")
+    while idx != -1:
+        depth = 0
+        top_comma = False
+        for ch in expr[idx + len("CALCULATE") :]:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif ch == "," and depth == 1:
+                top_comma = True
+        if not top_comma:
+            return True
+        idx = upper.find("CALCULATE(", idx + len("CALCULATE("))
+    return False
+
+
 def analyze_source_m(m_code: str, table: str) -> list[dict]:
     """Find antipatterns in a source's M code (Power Query)."""
     out = []
@@ -85,12 +112,9 @@ def analyze_measure(name: str, expr: str) -> list[dict]:
         return out
     hits: list[str] = []
 
-    # CALCULATE( without a filter) - an approximation
-    if (
-        re.search(r"CALCULATE\s*\(\s*[A-Za-z_\[\]\s'\.]+\s*\)", expr)
-        and "CALCULATE" in expr
-        and not re.search(r"CALCULATE\s*\([^)]*,[^)]*\)", expr)
-    ):
+    # CALCULATE( without a filter): a `CALCULATE` whose call has no top-level
+    # comma (balanced-paren scan, so `CALCULATE(SUM([A]))` is caught).
+    if _calculate_without_filter(expr):
         hits.append("dax.calculate_no_filter")
     if re.search(r"\bSUMX\s*\(", expr, re.IGNORECASE) or re.search(
         r"\bEARLIER\s*\(", expr, re.IGNORECASE

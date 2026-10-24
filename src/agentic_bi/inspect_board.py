@@ -21,6 +21,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from agentic_bi.reportserver.odata import odata_quote
 from agentic_bi.reportserver.pbix_analysis import PbiRsBulk
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def find_by_path(bulk: PbiRsBulk, path: str) -> dict:
         PbirsPathError: if the report is not found at this path.
     """
     params = {
-        "$filter": f"Path eq '{path}' and Type eq 'PowerBIReport'",
+        "$filter": f"Path eq '{odata_quote(path)}' and Type eq 'PowerBIReport'",
         "$select": "*",
     }
     r = bulk.net.get(f"https://{bulk.server}{bulk.base}{bulk.api}/CatalogItems", params)
@@ -64,18 +65,24 @@ def find_by_path(bulk: PbiRsBulk, path: str) -> dict:
 
 def download_report(bulk: PbiRsBulk, item: dict, dest: Path) -> Path:
     """Download the report .pbix; raises PbirsAccessError on 403."""
-    iid = item["Id"]
+    iid = item.get("Id")
+    if not iid:
+        raise PbirsAccessError(
+            f"Catalog item without an Id ({item.get('Path') or item.get('Name') or '?'})"
+        )
+    name = item.get("Name") or "report"
     url = (
-        f"https://{bulk.server}{bulk.base}{bulk.api}/catalogitems({iid})/Content/$value"
+        f"https://{bulk.server}{bulk.base}{bulk.api}"
+        f"/catalogitems({odata_quote(iid)})/Content/$value"
     )
     r = bulk.net.request("GET", url)
     if r.status_code == 403:
         raise PbirsAccessError(
-            f"No permission to download '{item['Name']}' (HTTP 403). "
+            f"No permission to download '{name}' (HTTP 403). "
             f"Content/$value is closed for the current user on {bulk.server}."
         )
     if r.status_code != 200 or not r.content:
-        raise PbirsAccessError(f"Download '{item['Name']}' -> HTTP {r.status_code}")
+        raise PbirsAccessError(f"Download '{name}' -> HTTP {r.status_code}")
     dest.write_bytes(r.content)
     return dest
 
@@ -137,9 +144,10 @@ def inspect_board(path: str, keep_pbix: bool = False) -> dict:
 
     out_dir = OUT_DIR / "inspect"
     out_dir.mkdir(parents=True, exist_ok=True)
-    pbix = out_dir / f"{Path(item['Name']).stem}.pbix"
+    stem = Path(str(item.get("Name") or "report")).stem
+    pbix = out_dir / f"{stem}.pbix"
 
-    logger.info("Downloading: %s (%s)", item["Name"], item["Path"])
+    logger.info("Downloading: %s (%s)", item.get("Name"), item.get("Path"))
     download_report(bulk, item, pbix)
     logger.info("Downloaded: %s (%.2f MB)", pbix.name, pbix.stat().st_size / 1e6)
 

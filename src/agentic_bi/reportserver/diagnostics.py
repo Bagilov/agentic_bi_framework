@@ -30,6 +30,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from agentic_bi.reportserver.odata import odata_quote, walk_values
 from agentic_bi.reportserver.reportserver_client import (  # noqa: F401
     CONFIG_FILE,
     ITEM_DETAILS,
@@ -61,7 +62,7 @@ class ReportServerDiagnostics:
     ) -> str:
         path = f"{self.api}/{entity}"
         if item_id:
-            path += f"('{item_id}')"
+            path += f"('{odata_quote(item_id)}')"
         if action:
             path += f"/{action}"
         return f"https://{self.cfg.get('server')}{self.base}{path}"
@@ -72,26 +73,32 @@ class ReportServerDiagnostics:
             try:
                 return r.json()
             except json.JSONDecodeError:
+                logger.warning(
+                    "HTTP 200 but the body is not JSON (%s): %s",
+                    r.headers.get("Content-Type"),
+                    url,
+                )
                 return {}
         if r.status_code != 200:
-            logger.debug("HTTP %s %s", r.status_code, url)
+            logger.warning("HTTP %s for %s", r.status_code, url)
+        else:
+            logger.warning(
+                "Non-JSON response (%s) for %s", r.headers.get("Content-Type"), url
+            )
         return {}
 
-    def _get_values(self, url: str, params: dict | None = None) -> list[dict]:
-        j = self._get_json(url, params)
-        if isinstance(j, dict):
-            v = j.get("value")
-            if isinstance(v, list):
-                return v
-            return [j]
-        return []
+    def _get_values(
+        self, url: str, params: dict | None = None, paginate: bool = True
+    ) -> list[dict]:
+        """Records of an entity set, following `@odata.nextLink` (see `odata.py`)."""
+        return walk_values(self._get_json, url, params, paginate)
 
     # --- catalog ----------------------------------------------------------
     def list_root_items(self, root: str) -> list[dict]:
         """All items under root (recursively, including nested folders)."""
         items: list[dict] = []
         params = {
-            "$filter": f"startswith(Path,'{root}')",
+            "$filter": f"startswith(Path,'{odata_quote(root)}')",
             "$top": 1000,
             "$select": "*",
         }
@@ -126,7 +133,9 @@ class ReportServerDiagnostics:
 
     def entity_samples(self, entity: str, limit: int = 5) -> list[dict]:
         """Sample records of an entity set (for the type reference/summaries)."""
-        return self._get_values(self._api_url(entity), {"$top": limit, "$select": "*"})
+        return self._get_values(
+            self._api_url(entity), {"$top": limit, "$select": "*"}, paginate=False
+        )
 
     # --- entity-set summaries ---------------------------------------------
     def entity_summary(self) -> dict:

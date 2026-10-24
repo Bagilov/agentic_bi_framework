@@ -176,7 +176,9 @@ class IndexMixin:
             lin = res.get("lineage", {})
             ap = res.get("antipatterns", {})
             # --- sources ---
-            for t, s in lin.get("sources", {}).get("by_table", {}).items():
+            sources = lin.get("sources")
+            by_table = sources.get("by_table", {}) if isinstance(sources, dict) else {}
+            for t, s in (by_table or {}).items():
                 rows.append(
                     {
                         **b,

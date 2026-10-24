@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agentic_bi.reportserver.diagnostics import NegotiateSession, load_config
+from agentic_bi.reportserver.odata import odata_quote
 from agentic_bi.reportserver.pbix_index import IndexMixin
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class PbiRsBulk(IndexMixin):
         items: list[dict] = []
         for root in roots:
             params = {
-                "$filter": f"startswith(Path,'{root}')",
+                "$filter": f"startswith(Path,'{odata_quote(root)}')",
                 "$top": 1000,
                 "$select": "*",
             }
@@ -79,11 +80,17 @@ class PbiRsBulk(IndexMixin):
     # --- download ---------------------------------------------------------
     def download(self, item: dict, dest: Path) -> Path | None:
         """Download the .pbix via catalogitems(id)/Content/$value."""
-        iid = item["Id"]
-        url = f"https://{self.server}{self.base}{self.api}/catalogitems({iid})/Content/$value"
+        iid = item.get("Id")
+        if not iid:
+            logger.warning("Download skipped: item has no Id (%s)", item.get("Path"))
+            return None
+        url = (
+            f"https://{self.server}{self.base}{self.api}"
+            f"/catalogitems({iid})/Content/$value"
+        )
         r = self.net.request("GET", url)
         if r.status_code != 200 or not r.content:
-            logger.warning("Download %s -> HTTP %s", item["Name"], r.status_code)
+            logger.warning("Download %s -> HTTP %s", item.get("Name"), r.status_code)
             return None
         dest.write_bytes(r.content)
         return dest
@@ -136,7 +143,11 @@ class PbiRsBulk(IndexMixin):
         results: list[dict] = []
         done = self.already_done()
         for i, item in enumerate(reports, 1):
-            stem = f"{_slug(item['Name'])}_{item['Id'][:8]}"
+            iid = str(item.get("Id") or "")
+            if not iid or not item.get("Name"):
+                logger.warning("Skipping an item without Id/Name: %s", item.get("Path"))
+                continue
+            stem = f"{_slug(item['Name'])}_{iid[:8]}"
             per = self.report_out / _slug(item["root"]) / f"{stem}.json"
             if stem in done:
                 try:
@@ -221,8 +232,11 @@ class PbiRsBulk(IndexMixin):
         id2name: dict[str, str] = {}
         id2path: dict[str, str] = {}
         for item in self.list_powerbi(self.cfg.get("roots", [])):
-            id2name[item["Id"][:8]] = item["Name"]
-            id2path[item["Id"][:8]] = item.get("Path")
+            iid = str(item.get("Id") or "")
+            if not iid:
+                continue
+            id2name[iid[:8]] = item.get("Name") or "?"
+            id2path[iid[:8]] = item.get("Path")
         for root_dir in sorted(keep_dir.iterdir()) if keep_dir.exists() else []:
             if not root_dir.is_dir():
                 continue
