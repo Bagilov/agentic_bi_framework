@@ -18,7 +18,7 @@ from agentic_bi.lineage.lineage_types import (
     Visual,
     VisualBinding,
     _split_table_col,
-    _strip_agg,
+    _strip_aggs,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -76,6 +76,7 @@ class ModelMixin:
         m = self._model
 
         self.tables: list[str] = list(m.tables)
+        self._tables_lower: dict[str, str] = {t.lower(): t for t in self.tables}
 
         self.measures: dict[str, list[str]] = defaultdict(list)
         for _, row in m.dax_measures.iterrows():
@@ -113,17 +114,24 @@ class ModelMixin:
 
     # ---------------- normalize the table name ----------------
     def _resolve_table(self, token: str) -> str | None:
-        """Resolve a display/layout name to the physical model table."""
-        raw = token.strip()
-        if raw.startswith(
-            tuple(agg + "(" for agg in ("Min", "Max", "Sum", "Avg", "Count"))
-        ):
-            raw = _strip_agg(raw)
-        # strip a possible aggregate suffix of the form 'Table.Column'
+        """Resolve a display/layout name to the physical model table.
+
+        Names are matched case-insensitively: DAX/visuals resolve table names
+        without regard to case, and a donor or patched layout frequently carries a
+        different case than the model, so an exact-case test would silently drop
+        the relationship. An aggregation wrapper is stripped first.
+        """
+        if not isinstance(token, str):
+            return None
+        raw = _strip_aggs(token).strip()
+        # strip a possible 'Table.Column' suffix (the table part comes first)
         raw = raw.split(".", 1)[0].strip()
         phys = self.display_aliases.get(raw, raw)
         if phys in self.tables:
             return phys
+        by_lower = self._tables_lower.get(raw.lower())
+        if by_lower is not None:
+            return by_lower
         self._unresolved_table_refs.add(raw)
         return None
 

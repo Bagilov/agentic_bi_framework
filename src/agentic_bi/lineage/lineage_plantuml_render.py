@@ -103,7 +103,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
     out.append('\npackage "2 · DATA SOURCES" {')
     source_tables: set[str] = set()
     for group in sorted(src_by_group):
-        out.append(f'  package "{group}" {{')
+        out.append(f'  package "{ctx._pu_escape(group)}" {{')
         for it in src_by_group[group]:
             tbl = it["table"]
             source_tables.add(tbl)

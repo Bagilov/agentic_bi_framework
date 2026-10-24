@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from agentic_bi.lineage.lineage_types import Source
@@ -42,11 +43,16 @@ left to right direction
     def _pu_escape(self, text: str) -> str:
         """Escape special characters for PlantUML node text.
 
-        Underscore is NOT escaped (it renders correctly inside a component),
-        and newlines are replaced with the literal \\n so label parsing is not broken.
+        Underscore is NOT escaped (it renders correctly inside a component), and
+        newlines are replaced with the literal \\n so label parsing is not broken.
+        A double quote is escaped because the label is interpolated inside a quoted
+        `package "..."` in the renderer: an unescaped quote would terminate the
+        string early and make the generated .puml syntactically invalid.
         """
         return (
-            text.replace("\\", "\\\\")
+            str(text)
+            .replace("\\", "\\\\")
+            .replace('"', r"\"")
             .replace("#", r"\#")
             .replace("[", r"\[")
             .replace("]", r"\]")
@@ -70,7 +76,7 @@ left to right direction
         base = f"{prefix}_{keep}"
         nid = base
         if not re.search(r"[A-Za-z]", keep):
-            nid = f"{base}_{abs(hash(name)) % 100000}"
+            nid = f"{base}_{abs(int(hashlib.sha1(name.encode('utf-8')).hexdigest(), 16)) % 100000}"
         # guaranteed uniqueness when names of different entities repeat
         k = nid
         i = 0

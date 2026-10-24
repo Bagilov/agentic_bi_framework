@@ -46,21 +46,45 @@ def _brand_level_ru(level: str | None) -> str:
 
 
 def _split_table_col(query_ref: str) -> tuple[str, str | None]:
-    """Split a queryRef 'Table.Column' into (table, column)."""
-    if "." not in query_ref:
-        return query_ref, None
-    tbl, col = query_ref.split(".", 1)
+    """Split a queryRef 'Table.Column' into (table, column).
+
+    Aggregation wrappers are removed first, repeatedly for a nested form, so
+    'Sum(Sales.Amount)' yields ('Sales', 'Amount') and 'Count(Distinct(T.C))'
+    yields ('T', 'C') rather than the broken ('Sum(Sales', 'Amount)'). Power BI
+    queryRefs for aggregated fields are 'Agg(Table.Object)'. A non-string
+    queryRef (malformed layout) yields ('', None) instead of raising.
+    """
+    if not isinstance(query_ref, str):
+        return "", None
+    inner = _strip_aggs(query_ref)
+    if "." not in inner:
+        return inner, None
+    tbl, col = inner.split(".", 1)
     return tbl, col
 
 
+_AGG_RE = re.compile(r"^[A-Za-z_]\w*\((.*)\)$", re.DOTALL)
+
+
 def _strip_agg(token: str) -> str:
-    """Strip aggregation wrappers like 'Min(Table.column)' -> 'Table'."""
-    m = re.match(r"^(\w+)\(", token)
-    if m:
-        inner = token[m.end() :]
-        if inner.endswith(")"):
-            return inner[:-1].split(".", 1)[0]
-    return token
+    """Strip one outermost aggregation wrapper: 'Sum(Table.Column)' -> 'Table.Column'.
+
+    A token that is not wrapped in an aggregation is returned unchanged.
+    """
+    s = str(token).strip()
+    m = _AGG_RE.match(s)
+    return m.group(1).strip() if m else s
+
+
+def _strip_aggs(token: str, limit: int = 4) -> str:
+    """Strip aggregation wrappers until the token is stable (bounded by `limit`)."""
+    s = str(token).strip()
+    for _ in range(limit):
+        nxt = _strip_agg(s)
+        if nxt == s:
+            break
+        s = nxt
+    return s
 
 
 # --------------------------------------------------------------------------- #
