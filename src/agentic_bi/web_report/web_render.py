@@ -40,8 +40,27 @@ _SEVERITY_LABEL = {"error": "Ошибка", "warning": "Предупр.", "info"
 _DEFAULT_W, _DEFAULT_H = 1280, 720
 
 
+# Characters json.dumps leaves alone that are unsafe inside a <script> element.
+_SCRIPT_ESCAPES = {"<": "\\u003c", ">": "\\u003e", "&": "\\u0026"}
+
+
 def _e(text: object) -> str:
     return html.escape(str(text), quote=True)
+
+
+def _json_for_script(payload: object) -> str:
+    """Serialize `payload` for embedding inside a `<script>` element.
+
+    `json.dumps` escapes quotes and backslashes but not `<` or `>`, so a string
+    taken from the report (a visual title, an entity name in an issue message)
+    could close the script element early and inject markup. Escaping happens at
+    this single sink rather than per input, so every current and future source is
+    covered. The escape keeps the document valid JSON.
+    """
+    text = json.dumps(payload, ensure_ascii=False)
+    for char, escaped in _SCRIPT_ESCAPES.items():
+        text = text.replace(char, escaped)
+    return text
 
 
 def _tooltip(el: ElementReport) -> str:
@@ -94,8 +113,8 @@ def _element_box(el: ElementReport) -> str:
     return (
         f'<div class="el {severity}" data-el="1" data-page="{_e(el.page)}" '
         f'data-kind="{_e(el.visual_type)}" data-severity="{severity}" '
-        f'data-checks="{_e(checks)}" style="{style}" '
-        f'title="{_e(_tooltip(el))}" onclick="showDetails(\'{_e(el.key)}\')">'
+        f'data-checks="{_e(checks)}" data-key="{_e(el.key)}" style="{style}" '
+        f'title="{_e(_tooltip(el))}">'
         f'<div class="el-chrome"><span class="el-title">{_e(el.label)}</span>'
         f'<span class="badge {severity}">{corner}</span></div>'
         f'<div class="el-body">{mock_body(el.visual_type)}</div>'
@@ -173,7 +192,7 @@ def _detail_rows(model: WebReportModel) -> str:
 def render_html(model: WebReportModel, title: str = "Dashboard Clone") -> str:
     """Render the report clone as an interactive layout."""
     page_opts, kind_opts, check_opts = _filter_options(model)
-    model_json = json.dumps(_model_payload(model), ensure_ascii=False)
+    model_json = _json_for_script(_model_payload(model))
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>

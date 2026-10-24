@@ -187,18 +187,25 @@ function applyFilters() {
     visible + ' элементов показано';
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 function showDetails(key) {
   const el = BY_KEY[key];
   const card = document.getElementById('detailCard');
   if (!el) { card.style.display = 'none'; return; }
   const m = el.metrics;
+  const e = escapeHtml;
   const issues = (el.issues || []).length
     ? '<ul>' + el.issues.map(i =>
-        '<li><span class="badge ' + i.severity + '">' + i.severity + '</span> '
-        + i.check_id + ' — ' + i.message + '</li>').join('') + '</ul>'
+        '<li><span class="badge ' + e(i.severity) + '">' + e(i.severity) + '</span> '
+        + e(i.check_id) + ' — ' + e(i.message) + '</li>').join('') + '</ul>'
     : '<div class="row">нарушений нет</div>';
-  card.innerHTML = '<h3>' + el.label + ' · ' + el.visual_type + '</h3>'
-    + '<div class="row">страница: ' + el._page + '</div>'
+  card.innerHTML = '<h3>' + e(el.label) + ' · ' + e(el.visual_type) + '</h3>'
+    + '<div class="row">страница: ' + e(el._page) + '</div>'
     + '<div class="row">полей: ' + m.fields + ' · ролей: ' + m.roles
     + ' · цветов: ' + m.colors + ' · фильтров: ' + m.filters + '</div>'
     + '<div class="row">ошибок: ' + m.errors + ' · предупр.: ' + m.warnings + '</div>'
@@ -207,6 +214,9 @@ function showDetails(key) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.el').forEach(el => {
+    el.addEventListener('click', () => showDetails(el.dataset.key));
+  });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       document.getElementById('detailCard').style.display = 'none';
