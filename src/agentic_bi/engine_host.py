@@ -121,8 +121,12 @@ def wait_port(root: Path | None = None, timeout: int = 60) -> int:
     raise TimeoutError(f"engine port not found under {root}")
 
 
-def run_engine_build(spec_path: Path, abf: Path) -> str:
+def run_engine_build(spec_path: Path, abf: Path, port: int | None = None) -> str:
     """Run `_engine_build.ps1` (one retry) and return the console tail.
+
+    `port` is the live engine port from `wait_port()`; passing it avoids a race in
+    the script, which would otherwise re-derive the port from the newest workspace
+    by mtime and could pick a just-closed workspace whose port is already dead.
 
     The engine does not always start on the first attempt, so a missing output is
     retried once before failing.
@@ -142,6 +146,8 @@ def run_engine_build(spec_path: Path, abf: Path) -> str:
         "-Out",
         str(abf),
     ]
+    if port:
+        cmd += ["-Port", str(port)]
     proc = None
     for attempt in (1, 2):
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)

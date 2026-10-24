@@ -39,6 +39,8 @@ tables = ["pandas>=2.0", "pyarrow>=14.0"]
 report = ["reportlab>=4.0", "Pillow>=10.0", "pandas>=2.0", "openpyxl>=3.1"]
 # Binary DataModel (ABF) read/relayout: member-level patching of a .pbix.
 binary = ["xpress9>=0.3"]
+# Windows guest chain: WinRM to a UTM VM that runs the engine/oracle (see docs).
+guest = ["pywinrm>=0.5"]
 # Developer tooling: linter/formatter + tests.
 dev = ["ruff>=0.6", "pytest>=7.4"]
 # Everything.
@@ -56,6 +58,7 @@ all = [
   "reportlab>=4.0",
   "Pillow>=10.0",
   "xpress9>=0.3",
+  "pywinrm>=0.5",
 ]
 
 [project.scripts]
@@ -69,6 +72,7 @@ agentic-bi-server = "agentic_bi.reportserver.diagnostics:main"
 agentic-bi-report = "agentic_bi.report.pdf_report:main"
 agentic-bi-pbix-patch = "agentic_bi.pbix_binary.patch_cli:main"
 agentic-bi-web-clone = "agentic_bi.web_report.web_cli:main"
+agentic-bi-guest-dashboard = "agentic_bi.guest_chain_cli:main"
 
 [tool.ruff]
 line-length = 88

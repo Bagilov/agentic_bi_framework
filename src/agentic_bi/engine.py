@@ -104,7 +104,7 @@ class EnginePipeline:
         abf = self.work_dir / "engine_out.abf"
         if abf.exists():
             abf.unlink()
-        tail = engine_host.run_engine_build(spec_path, abf)
+        tail = engine_host.run_engine_build(spec_path, abf, port=port)
         logger.info("engine tail: %s", tail.strip()[-200:])
         return abf.read_bytes()
 

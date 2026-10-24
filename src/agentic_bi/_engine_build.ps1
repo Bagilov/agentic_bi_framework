@@ -7,7 +7,8 @@
 # Types: int64 | double | string | date
 param(
   [Parameter(Mandatory=$true)][string]$Spec,
-  [Parameter(Mandatory=$true)][string]$Out
+  [Parameter(Mandatory=$true)][string]$Out,
+  [int]$Port = 0
 )
 $ErrorActionPreference = 'Stop'
 # Desktop binary directory: override with PBI_RS_BIN, else prefer the RS build
@@ -28,8 +29,31 @@ $wsRoot = if ($env:PBI_RS_WS_ROOT) { $env:PBI_RS_WS_ROOT } else {
   if (Test-Path $rsWs) { $rsWs }
   else { "$env:LOCALAPPDATA\Microsoft\Power BI Desktop\AnalysisServicesWorkspaces" }
 }
-$ws = Get-ChildItem $wsRoot -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$port = (Get-Content (Join-Path $ws.FullName 'Data\msmdsrv.port.txt')) -replace [char]0, ''
+# Port resolution: the caller (engine_host.wait_port) already knows the *live*
+# engine port. Picking the newest workspace by mtime here would race: Desktop
+# leaves a just-closed workspace with a fresh timestamp whose port is dead, so an
+# mtime-based pick connects to a stopped engine ("server is not running"). Honor
+# -Port; fall back to the newest workspace whose port actually listens.
+if ($Port -gt 0) {
+  $port = $Port
+} else {
+  $candidates = Get-ChildItem $wsRoot -Directory -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending
+  $port = $null
+  foreach ($w in $candidates) {
+    $pf = Join-Path $w.FullName 'Data\msmdsrv.port.txt'
+    if (-not (Test-Path $pf)) { continue }
+    $p = ((Get-Content $pf -Raw) -replace [char]0, '').Trim()
+    if ($p -notmatch '^\d+$') { continue }
+    $alive = $false
+    try {
+      $c = [System.Net.Sockets.TcpClient]::new()
+      $c.Connect('127.0.0.1', [int]$p); $alive = $c.Connected; $c.Close()
+    } catch { $alive = $false }
+    if ($alive) { $port = $p; break }
+  }
+  if (-not $port) { throw "no live engine port found under $wsRoot" }
+}
 
 $specObj = Get-Content $Spec -Raw -Encoding UTF8 | ConvertFrom-Json
 $dbName = $specObj.database

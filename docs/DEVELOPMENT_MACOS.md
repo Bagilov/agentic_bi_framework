@@ -182,6 +182,31 @@ scripted use. Notes:
 - Transfer is host HTTP -> guest fetch. A `.pbix` cannot be pushed inline over
   WinRM: long `-encodedcommand` payloads are silently truncated by the guest's
   command-line limit.
+- The WinRM half is optional: install it with `pip install -e '.[guest]'`
+  (`pywinrm`). Everything else in the suite stays stdlib-only.
+
+### One-shot chain: build the board in the guest end to end
+
+`guest_chain.build_dashboard` wraps the whole flow behind one bounded call: it
+starts the VM, stages the framework, runs the engine build in the guest's
+interactive session, pulls the `.pbix` back, optionally runs the Desktop oracle
+and always tears down (the scheduled task is unregistered; the VM is stopped only
+if this chain started it). Every stage shares one `Deadline`, so the process
+returns exactly one verdict and can never hang.
+
+```sh
+export AGENTIC_BI_GUEST_WINRM="http://<guest-ip>:5985/wsman"
+export AGENTIC_BI_GUEST_USER="<user>"
+export AGENTIC_BI_GUEST_PASSWORD="<password>"
+export AGENTIC_BI_VM_UUID="<utm-vm-uuid>"   # optional: enables utmctl start/stop
+
+.venv/bin/agentic-bi-guest-dashboard --repo . --vm-uuid "$AGENTIC_BI_VM_UUID" \
+  --oracle --timeout 1800 --json output_files/guest_chain_report.json
+```
+
+The verdict tokens are `BUILT`, `NOT_BUILT`, `STAGE_FAILED`, `ORACLE_FAILED`,
+`TIMEOUT` (plus `NOT_CONFIGURED` from the CLI when the guest env is unset, exit
+2). Exit code is 0 only for `BUILT` with `oracle in (None, "MODEL_LOADED")`.
 
 Gallery of **every** supported visual kind (one page):
 

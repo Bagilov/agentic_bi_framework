@@ -94,6 +94,18 @@ Stage 2: in `C:\pbi\build_board.ps1` change the `& ... engine_table_board.py`
 line to `... engine_rich_board.py`, set `--out ...\Desktop\sales_rich_board.pbix`,
 then run the same register/start block.
 
+The manual steps above are the background for `guest_chain`, which performs them
+automatically over WinRM inside one bounded, self-cleaning call: it stages the
+framework, runs the builder as an interactive scheduled task, pulls the `.pbix`
+back, optionally runs the Desktop oracle, and stops the VM only if it started it.
+Prefer it over hand-driven tasks:
+
+```sh
+.venv/bin/agentic-bi-guest-dashboard --repo . --vm-uuid <utm-uuid> --oracle
+```
+
+See `docs/DEVELOPMENT_MACOS.md` for the environment and verdict tokens.
+
 ## Visual kinds and value binding (stage 2)
 
 Supported kinds (`Visual(kind, ...)`): `table`, `matrix`, `card`, `column`,
