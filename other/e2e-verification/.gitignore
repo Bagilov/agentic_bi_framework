@@ -1,0 +1,4 @@
+# Disposable build output: the rendered reports and screenshots are regenerated
+# by `binary_e2e.py` / `make_evil_pbix.py`. The scripts and README are tracked.
+*.html
+*.png

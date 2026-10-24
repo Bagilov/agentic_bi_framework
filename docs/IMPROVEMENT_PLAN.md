@@ -1,0 +1,299 @@
+# Improvement plan for `agentic_bi_framework`
+
+Status: **Stage 0 implemented**; Stages 1–4 not started. Baseline measured on
+`main` @ `032d817` (2026-10-21). Every number below was reproduced locally on that commit; the
+commands are given so any claim can be re-checked.
+
+Independent review: a second opinion from Qwen (chat.qwen.ai) was taken through
+`manage_webllm` and is folded in as `[Q]`. Where the review disagreed with the
+measurements, the measurement wins and the disagreement is called out.
+
+---
+
+## 1. Baseline (measured, not estimated)
+
+| Signal | Command | Result |
+|---|---|---|
+| Lint | `ruff check .` | clean |
+| Format | `ruff format --check .` | clean, 116 files |
+| Tests (module) | `.venv/bin/python -m pytest -q` | 88 passed, 2 skipped |
+| Tests (console) | `.venv/bin/pytest -q` | **2 collection errors** |
+| Coverage | `coverage run --source=src/agentic_bi -m pytest` | **37 %** (6597 stmts, 4133 missed) |
+| Importability | `walk_packages` over all modules | 92/92 import OK |
+| Wheel installs debug code | `python -m build --wheel` + `unzip -l` | `board_fake.py`, `_engine_oracle.py`, `desktop_oracle_guest.py`, `test_build.py`, `_engine_build.ps1` are **shipped** |
+| Blind excepts | `ruff check --select BLE --ignore-noqa` | 32 |
+| Replaceable `noqa` | `ruff check --select RUF100` | 59 (34 × BLE001, 23 × F401) |
+| `print()` in library code | `ruff check --select T20` | 69 |
+| Public API docstrings | AST walk over `src/` | 90 of 396 public defs undocumented |
+| `print` vs `logging` | AST walk | 22 modules with `print`, 27 with `logger` |
+| Windows guards | `grep 'sys.platform\|os.name'` | **1** site, vs a large Windows-only surface |
+| Version duplication | `pyproject.toml:7` vs `__init__.py:37` | duplicated; no lock file |
+| Package-dir writes | `grep '__file__.*output_files'` | 8 sites write inside the installed package |
+| Injected HTML/JS | browser reproduction | **2 exploitable defects** (see §2.1) |
+| CI | — | missing (`.github/` absent) |
+| `py.typed` | — | missing |
+| Type checker | — | none configured |
+| CHANGELOG | — | missing |
+
+Two measurements deserve emphasis because they contradict the code's own
+self-description:
+
+- **Coverage is 37 %, not "mostly tested".** 20 modules are at 0 %, including
+  `board.py`, `automate.py`, `rebuild.py`, `validate_pbix.py`, `publish.py`,
+  `agents.py`, `brand_audit*.py`, the whole `report/` package and most of
+  `antipatterns/`.
+- **`python -m pytest` is green, plain `pytest` is red.** Both are legitimate
+  ways to run the suite; CI will use one of them and may pick the failing one.
+
+---
+
+## 2. Signal vs noise
+
+Qwen's split is accepted with one correction.
+
+**Noise for now (do not spend time):**
+- `# type: ignore` (10) and `: Any` (5) — no type checker enforces them yet, so
+  they are inert debt. Fix them *when* the checker lands, not before.
+- File length > 300 lines (9 files, `board.py` worst at 361). Purely cosmetic;
+  churning these modules now would bury the real diffs in git history.
+- `except Exception` count *as a number*. What matters is the 32 sites that
+  swallow failures in `reportserver/` and `pbix_binary/`; the rest are lazy
+  optional imports that never fail silently.
+- The 90 missing public docstrings and the 22 `print`-only modules. Both are
+  real debt but neither is a defect; a bulk sweep now produces an unreviewable
+  diff (`[Q]` agrees, and recommends only a lint rule plus fixing the worst
+  module).
+
+**Signal (fix):**
+1. **Two exploitable HTML/JS injection defects** in `web_report` — see §2.1.
+   These outrank everything else in this document.
+2. `pytest` / `python -m pytest` divergence — the tests import
+   `tests.web_report_fixtures`, but `tests/` is not a package.
+3. No CI at all, plus no coverage gate, on a framework that parses binary
+   formats where a silent regression is invisible.
+4. `pywinrm` imported but declared in **no** extra; the wheel also ships debug
+   modules, so the published artifact does not match the documented surface.
+5. Writes into the installed package directory (8 sites, e.g. `engine.py:64`).
+   Verified: a read-only package dir makes `EnginePipeline()` raise
+   `PermissionError` at construction.
+6. 34 of all `noqa` directives are unused (`RUF100`), i.e. the suppression set
+   is partly decorative and hides nothing.
+7. Donor-specific defaults (`fact_table`, `kpi_measures`) baked into
+   `board.py`, `automate.py`, `spec.py`, `validate_pbix.py`, `board_fake.py`
+   while the README claims the framework is implementation-agnostic.
+
+`[Q]`'s rating of "file length" and "type: ignore" as noise matches; its claim
+that the `pytest` failure is "CRITICAL" is over-stated — a one-line config defect
+with a proven fix — but it is still first because it is nearly free.
+
+### 2.1 Injectable HTML/JS in `web_report` (new, High)
+
+Found in round 2, both **reproduced in a browser**; full detail in
+`../other/qwen-review/security-findings.md`.
+
+- `web_render.py:246` embeds `json.dumps(payload)` into a `<script>` without
+  escaping `<`/`>`, so a `</script>` in any untrusted `.pbix` string breaks out
+  of the element and executes. Two independent sources were reproduced (a visual
+  title, and an entity name that lands in an issue message), which is why the
+  fix belongs at the serialization sink.
+- `web_render.py:98` places the element key in a single-quoted JS string inside
+  `onclick`; `_e()` escapes for HTML, the browser then un-escapes the attribute
+  before JS parsing, so a page name breaks out of the string.
+
+`[Q]`'s round-2 advice is adopted with one correction: escaping `<`/`>`/`&` in
+the payload is sufficient for the `<script>` sink and should **not** be replaced
+by an HTML sanitizer (which would corrupt legitimate `<`/`>` in labels), but for
+the `onclick` sink escaping is the wrong fix entirely — the string must stop
+being built as JS-in-HTML.
+
+---
+
+## 3. Staged plan
+
+Each stage is independently shippable; do not start one before the previous is green.
+
+### Stage 0 — Close the injection and corruption defects (**implemented**)
+
+These came first: unlike everything else here, they were exploitable or silently
+destructive, and every fix is small. Status below.
+
+- `web_render.py`: escape `<`, `>`, `&` in the serialized payload before it is
+  interpolated into `<script>`. Done via a single `_json_for_script` sink helper,
+  so future sources are covered too.
+- `web_render.py`: stop building JS inside the HTML attribute — the element key
+  now travels in `data-key` and the handler is bound with `addEventListener`
+  (`web_assets.py`). The client also escapes interpolated model strings before
+  writing them with `innerHTML`.
+- Serialize the ABF virtual directory with `ElementTree` instead of hand-rolled
+  f-strings (**verified**: byte-identical to the engine output for normal paths;
+  correct escaping for `&`/`<`/`>`/`'`/`"`).
+- `apply_patches` is now self-verifying: it re-reads the written `.pbix`,
+  decompresses the `DataModel` and parses the ABF index, raising `PatchError` if
+  anything fails. Not optional, and the CLI reports it as exit code 2.
+- Ambiguous equal-length patches fail fast; `occurrence` (0-based index) selects
+  one site and `"occurrence": "all"` replaces every match.
+- `pythonpath = ["."]` added to `[tool.pytest.ini_options]`.
+- Regression tests: `tests/test_web_report_injection.py` (6) and
+  `tests/test_pbix_binary_hardening.py` (11). Each was run against the pre-fix
+  code and fails there, so they genuinely pin the defects.
+- Result: `pytest -q` and `python -m pytest -q` exit 0 with identical counts;
+  `ruff check` / `ruff format --check` clean.
+
+Remaining Stage 0 follow-ups (not blocking): none.
+
+### Guest chain — implemented and proven end to end
+
+The bounded chain (`guest_chain.py` + the split `guest_*` modules, CLI
+`agentic-bi-guest-dashboard`) is done: one call starts the VM, stages the
+framework, builds the board in the guest's interactive session, pulls it back,
+optionally runs the Desktop oracle, and always tears down. Proven from a **cold
+start** (VM stopped first): `verdict BUILT`, `oracle MODEL_LOADED`, exit 0, VM
+stopped by the chain. The `guest` extra and offline `tests/test_guest_chain.py`
+are in place. Round 5 (`REVIEW_DECISIONS.md`) tightened two silent-success paths:
+SHA-256 verification is fail-closed on an empty guest hash, and `run_ps` raises on
+a non-zero exit.
+
+### Stage 1 — CI, coverage gate, honest extras, writable paths (2–3 days)
+
+- `.github/workflows/ci.yml`: matrix on Python 3.10 / 3.12, `ruff check`,
+  `ruff format --check`, `pytest`, on `ubuntu-latest` plus one `windows-latest`
+  leg (the AS-engine path is Windows-only and currently untested in CI at all).
+- Add `pytest-cov`, `[tool.coverage.run] source`, and a **ratchet** gate:
+  fail under the measured floor (37 %), never below it; raise the number in the
+  same PR that adds tests. A hard 60 %/75 % target `[Q]` proposes would fail on
+  day one and get disabled.
+- Declare the missing dependency: new extra `guest = ["pywinrm>=0.5"]` for
+  `desktop_oracle_guest.py`, and add it to `all`.
+- Route the 8 package-relative writes to a runtime-writable location
+  (`tempfile` or `platformdirs`, `[Q]`'s recommendation), starting with
+  `engine.py:64` `work_dir` — **verified**: in a read-only package dir
+  `EnginePipeline()` raises `PermissionError` before doing any work. Fix
+  `cwd=str(_HERE)` in `engine_host.py:163` at the same time; the child process
+  must not depend on where the source happens to live.
+- Make the temp spec leak deterministic: `engine.py:102` writes
+  `pbix_spec_<epoch>.json` and never removes it; epoch has 1-second resolution,
+  so parallel runs collide. Use a unique name plus cleanup.
+- Done when: CI is green on `main`, a deliberate coverage drop fails the build,
+  `pip install ".[guest]"` makes `desktop_oracle_guest` importable, and a
+  read-only install can construct `EnginePipeline` and build without writing
+  into `site-packages`.
+- Effort: 2–3 days.
+
+### Stage 2 — Test the untested core, not the whole tree (1 week)
+
+Priority order is by blast radius, not by module size:
+
+1. `validate_pbix.py`, `rebuild.py`, `engine_container.py` — the paths that
+   write a `.pbix`; a regression here ships a corrupt deliverable.
+2. `pbix_binary/` codec/relayout round-trips on the shipped `templates/template.pbix`
+   (fixtures and skip logic already exist in `tests/conftest.py`).
+3. `lineage/` model → JSON → PlantUML/table, pure data, cheap to pin.
+
+Add golden round-trip tests (`[Q]`'s suggestion, adopted): `parse → to_dict`
+against a frozen snapshot, and `parse → serialize → parse` equality. This is the
+only mechanism that catches a silent `.pbix` format regression without Desktop,
+and it covers the boundary cases that matter here (empty report, broken
+bindings, very long column names, Cyrillic/special characters).
+
+Extend the existing `test_pbix_binary_*` suite with the round-3 invariants:
+property-based `relayout → parse` round-trips (e.g. Hypothesis), mutation fuzzing
+of the virtual directory and backup log (expect a domain error, never
+`IndexError`/`MemoryError`), truncation at -1/-4/-28/-4096, and the
+`swap_datamodel` byte-exactness test (REVIEW_DECISIONS.md, round 3). Range validation for D-2 also lands
+here as a `0.0.2` item.
+
+Do **not** chase `reportserver/` or `publish.py` coverage: they need a live
+server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
+`desktop_oracle_guest.py` entirely until they are removed from the package.
+
+- Done when: coverage ≥ 55 %, with the three write paths above at ≥ 70 %; golden
+  round-trip tests exist; no new test skipped on macOS.
+- Effort: ~1 week.
+
+### Stage 3 — Public contract and packaging (2–3 days)
+
+- Ship `src/agentic_bi/py.typed`; add `__all__` where a module is a facade, and
+  resolve the 23 `F401`: verified that `brand.py`/`skeleton.py`/`engine_verify.py`
+  keep passing `ruff --select F401` with the `noqa` removed (they already have
+  `__all__`), while `pbi_lineage.py`, `reportserver/diagnostics.py`,
+  `pbix_binary/abf_codec.py`, `antipatterns/pbi_antipatterns.py` still need
+  either `__all__` or the directive. Run `ruff check --select RUF100 --fix` to
+  delete the 34 unused `BLE001` directives.
+- Configure a type checker in report-only mode first (`mypy` or `pyright`),
+  non-blocking, then flip to blocking once the count is at zero.
+- Exclude debug modules from the wheel: `board_fake`, `_engine_oracle`,
+  `desktop_oracle_guest`, `test_build`, `_engine_build.ps1` — they currently
+  ship (confirmed in the built wheel). Keep `test_build` as a `scripts/` entry
+  (it already has a thin wrapper there) instead of a console script, or replace
+  it with a real `agentic-bi doctor` subcommand as `[Q]` suggests.
+- Add `noqa`-free `BLE` to the ruff `select` list so new blind excepts cannot
+  be added silently.
+- CLI error contract (round 4, **implemented**): `cli_support.run_boundary` maps a
+  bad input to exit `2` with a one-line message and lets an unexpected error stay a
+  traceback. Wired into all of `visual-check`, `brand-audit`, `engine`, `test-build`,
+  `lineage`, `antipatterns`, `report`, `pbix-patch`; `lineage.main` and
+  `pdf_report.main` now return a code, and each docstring lists its exit codes.
+- Agent manifest contract (round 4, **implemented**): `from_manifest` rejects an
+  unknown `stage`; `all_agents` raises instead of returning `[]`; the dead `path`
+  parameter is gone from `render_kilo_agent`.
+- Default outputs are CWD-relative now (round 4, **implemented**) —
+  `output_files/` beside the caller, not inside `site-packages`.
+- Done when: the wheel contains no debug/script modules, `py.typed` is present,
+  `RUF100` is clean, the type checker runs in CI in report-only mode, every CLI
+  returns a documented code for a bad input, and `from_manifest` rejects an
+  unknown stage.
+- Effort: 3–4 days.
+
+### Stage 4 — De-hardcode the donor and split the namespace (1–2 weeks)
+
+- Introduce `agentic_bi/settings.py` (dataclass-based, no new runtime
+  dependency) holding table/measure names; make every default `None` and
+  resolve from settings. `fact_table`/`kpi_measures` survive only as values
+  inside `examples/` and the sample registry in `validate_pbix.py`.
+- Split `src/agentic_bi/` into `engine/`, `brand/`, `skeleton/` subpackages
+  (`engine_core.py` → `engine/core.py`, and so on), keeping module-level
+  re-export shims for one release so `from agentic_bi.engine_layout import ...`
+  keeps working.
+- Reject as out of scope: nothing here is required for Stages 0–3 and the move
+  touches ~40 modules; do it only after the suite can absorb the churn.
+- Done when: no donor object name is hardcoded in `src/` outside
+  `settings.py` defaults and test fixtures; the pre-existing
+  `tests/test_refactor_parity.py` pattern extends to the new splits.
+- Effort: 1–2 weeks.
+
+---
+
+## 4. Explicit non-goals for this plan
+
+- **Do not** chase a `mypy --strict` target `[Q]` proposes for Stage 4. With 92
+  modules, 5 `Any` and 10 `type: ignore`, strict mode is weeks of noise for a
+  library whose core is intentionally duck-typed over opaque binary parts.
+  `[Q]`'s own round-2 position (basic `mypy`, not strict) is what this plan uses.
+- **Do not** raise the coverage floor above the measured value in one jump.
+- **Do not** refactor file sizes; the nine > 300-line files get revisited only
+  when Stage 4 moves their directories anyway.
+- **Do not** add a runtime dependency. The stdlib-only core is a real,
+  verified property (92/92 modules import with zero third-party packages).
+- **Do not** add upper bounds to dependency pins. `[Q]`'s round-2 reasoning is
+  correct and overrides nothing here: a library with `<2.0` caps causes
+  dependency hell for consumers.
+- **Do not** ship a lock file. It is right for CI determinism and wrong for the
+  published artifact; if a dev lock is added it must stay out of the wheel.
+- **Do not** bulk-replace `print` → `logging`. Add a lint rule (`T201`) to freeze
+  new occurrences and fix only `lineage/lineage_export.py` (15 `print`, 0
+  `logger`), which is the one module where the missing logging is in a real
+  pipeline.
+
+## 5. Review decision log
+
+The per-round decisions, corrections and rejected claims from the independent
+Qwen review live in [REVIEW_DECISIONS.md](REVIEW_DECISIONS.md), with the raw
+exchanges under `../other/qwen-review/`. That document is the record of *why*
+each item above is in the plan; this one is the plan itself.
+
+## 6. Platform note
+
+The Windows-only surface (`msmdsrv.exe`, PowerShell, WinRM in session 0) is
+untested anywhere in this plan's baseline and cannot be tested on macOS. Stage 1
+adds a Windows CI leg for the parts that do not need Desktop; the Desktop path
+stays covered by `docs/DEVELOPMENT_MACOS.md`'s manual VM procedure.

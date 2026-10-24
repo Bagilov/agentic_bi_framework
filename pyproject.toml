@@ -78,6 +78,9 @@ agentic-bi-guest-dashboard = "agentic_bi.guest_chain_cli:main"
 line-length = 88
 target-version = "py310"
 src = ["src", "tests"]
+# Verbatim third-party review transcripts (Markdown with embedded Python) must
+# stay byte-for-byte as received, so they are not reformatted.
+extend-exclude = ["other/qwen-review"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
