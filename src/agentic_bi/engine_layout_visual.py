@@ -37,6 +37,7 @@ from agentic_bi.engine_layout_query import (
     _data_query,
     _measure_item,
     _src,
+    dax_literal,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,35 @@ _VISUAL_TYPES = {
 
 # category charts that accept an optional Series breakdown
 _SERIES_CHARTS = {"stackedColumn", "stackedBar"}
+
+# Per-kind required inputs, checked in `Visual.__post_init__`. Each entry is a
+# *group*: the visual needs at least one of the listed attributes. Checking here
+# (not at render time) rejects a half-built visual before it reaches the layout,
+# where a missing input silently becomes `Sum(table.None)` and renders blank.
+_REQUIRED: dict[str, tuple[tuple[str, ...], ...]] = {
+    "table": (("columns",),),
+    "matrix": (("columns",),),
+    "card": (("measure", "value"),),
+    "gauge": (("measure", "value"),),
+    "kpi": (("measure", "value"),),
+    "slicer": (("axis",),),
+    "treemap": (("axis",), ("measure", "value")),
+    "scatter": (("x", "value"), ("y", "axis")),
+}
+# category charts (column/bar/line/area/pie/donut/funnel/waterfall/stacked*)
+for _kind in (
+    "column",
+    "bar",
+    "line",
+    "area",
+    "pie",
+    "donut",
+    "funnel",
+    "waterfall",
+    "stackedColumn",
+    "stackedBar",
+):
+    _REQUIRED[_kind] = (("axis",), ("measure", "value"))
 
 
 @dataclass
@@ -107,6 +137,11 @@ class Visual:
     def __post_init__(self) -> None:
         if self.kind not in _VISUAL_TYPES:
             raise ValueError(f"unknown visual kind: {self.kind}")
+        for group in _REQUIRED.get(self.kind, ()):
+            if not any(getattr(self, f) for f in group):
+                raise ValueError(
+                    f"visual '{self.kind}' requires one of: {', '.join(group)}"
+                )
 
 
 def _visual_config(v: Visual) -> dict:
@@ -184,7 +219,11 @@ def _visual_config(v: Visual) -> dict:
     objects = {}
     if v.title:
         objects["title"] = [
-            {"properties": {"text": {"expr": {"Literal": {"Value": f"'{v.title}'"}}}}}
+            {
+                "properties": {
+                    "text": {"expr": {"Literal": {"Value": dax_literal(v.title)}}}
+                }
+            }
         ]
     if v.kind == "slicer":
         objects["data"] = [

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 
+from agentic_bi.skeleton_container import full_query as _full_query
+from agentic_bi.skeleton_container import query_layout as _query_layout
 from agentic_bi.skeleton_visuals import (
-    _full_query,
     _query_item,
-    _query_layout,
     card_visual,
 )
 

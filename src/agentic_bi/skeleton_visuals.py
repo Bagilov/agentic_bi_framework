@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 
@@ -9,6 +10,17 @@ logger = logging.getLogger(__name__)
 
 # Function in Select for columns (from a real layout): 0=None, 4=min (donor uses 4)
 COL_AGG_FUNCTION = 4
+
+
+def _stable_suffix(text: str, length: int = 8) -> str:
+    """A short, process-stable hex digest of `text`.
+
+    Built-in `hash()` is salted per process (`PYTHONHASHSEED`), so a name derived
+    from it changes every run and makes the built .pbix non-reproducible (and
+    un-diffable between builds). SHA-1 of the UTF-8 bytes is stable across runs
+    and machines.
+    """
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:length]
 
 
 def _source_ref(source: str, entity: str) -> dict:
@@ -20,7 +32,7 @@ def page_filter(column: str, table: str, source: str = "m") -> dict:
 
     howCreated=1 -> "added manually" (visible as a filter on the page).
     """
-    filtered = f"FilterAuto_{hash(column) & 0xFFFFFFFF:08x}"
+    filtered = f"FilterAuto_{_stable_suffix(column)}"
     return {
         "name": filtered,
         "expression": {
@@ -62,7 +74,11 @@ def _query_item(
       - column WITHOUT agg      -> {"Column": {"Property": prop}}
     queryRef: "table.prop" for a column, "Sum(table.prop)" for Aggregation.
     """
-    prop = pq_query["property"]
+    prop = pq_query.get("property")
+    if not prop:
+        raise ValueError(
+            f"a field needs a non-empty 'property', got {pq_query.get('property')!r}"
+        )
     display = pq_query.get("display", prop)
     kind = pq_query.get("kind", "column")
     agg = bool(pq_query.get("agg", False))
@@ -122,25 +138,24 @@ def card_visual(
     _from = [{"Name": source, "Entity": table, "Type": 0}]
     if measure_alias:
         _from.append({"Name": measure_alias, "Entity": measure_table, "Type": 0})
+    # A sort makes sense only for a measure or an aggregation; a bare column has
+    # no Expression, and emitting {"Aggregation": null} is an invalid query that
+    # Power BI rejects, so OrderBy is omitted in that case. The Expression keeps
+    # its wrapper key ({"Measure": {...}} / {"Aggregation": {...}}), matching a
+    # real layout.
+    if "Measure" in item:
+        sort_expr = {"Measure": item["Measure"]}
+    elif "Aggregation" in item:
+        sort_expr = {"Aggregation": item["Aggregation"]}
+    else:
+        sort_expr = None
+    query_obj: dict = {"Version": 2, "From": _from, "Select": [item]}
+    if sort_expr is not None:
+        query_obj["OrderBy"] = [{"Direction": 1, "Expression": sort_expr}]
     single = {
         "visualType": "card",
         "projections": {"Values": [{"queryRef": qref}]},
-        "prototypeQuery": {
-            "Version": 2,
-            "From": _from,
-            "Select": [item],
-            "OrderBy": [
-                {
-                    "Direction": 1,
-                    "Expression": {
-                        "Measure"
-                        if query.get("kind") == "measure"
-                        else "Aggregation": item.get("Measure")
-                        or item.get("Aggregation")
-                    },
-                }
-            ],
-        },
+        "prototypeQuery": query_obj,
         "drillFilterOtherVisuals": True,
         "hasDefaultSort": True,
         "objects": {
@@ -280,38 +295,3 @@ def table_visual(
         "filters": "[]",
         "tabOrder": 0,
     }
-
-
-def _query_layout(name: str, single: dict, x: int, y: int, w: int, h: int) -> dict:
-    """Wrap a singleVisual into a visual container with a position."""
-    return {
-        "config": json.dumps(
-            {
-                "name": name,
-                "layouts": [
-                    {
-                        "id": 0,
-                        "position": {"x": x, "y": y, "width": w, "height": h, "z": 0},
-                    }
-                ],
-                "singleVisual": single,
-            },
-            ensure_ascii=False,
-        ),
-        "filters": "[]",
-        "tabOrder": 0,
-    }
-
-
-def _full_query(
-    table: str,
-    source: str,
-    selects: list[dict],
-    measure_table: str | None = None,
-    measure_alias: str | None = None,
-) -> dict:
-    """prototypeQuery From + Select (a shared wrapper)."""
-    _from = [{"Name": source, "Entity": table, "Type": 0}]
-    if measure_alias:
-        _from.append({"Name": measure_alias, "Entity": measure_table, "Type": 0})
-    return {"Version": 2, "From": _from, "Select": selects}

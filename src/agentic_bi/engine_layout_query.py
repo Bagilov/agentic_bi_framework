@@ -16,6 +16,7 @@ Aggregation codes/labels mirror the QOM `AggregationFunction` values.
 
 Public API:
     _src() -> str
+    dax_literal(text) -> str
     _col_ref(src, prop) / _agg_ref(src, prop, agg) / _measure_ref(src, name)
     _col_item(src, table, name) / _agg_item(src, table, prop, agg)
     _measure_item(src, table, name)
@@ -56,6 +57,15 @@ _AGG_LABEL = {
 def _src() -> str:
     """The source alias inside a visual query (ASCII, safe for all encoders)."""
     return "t"
+
+
+def dax_literal(text: str) -> str:
+    """Quote `text` as a DAX string literal (a `'...'` with `'` doubled).
+
+    A title/name reaching a `Literal` value must be escaped: an unescaped quote
+    (`Sales '23`) terminates the literal and corrupts the whole visual config.
+    """
+    return "'" + str(text).replace("'", "''") + "'"
 
 
 def _col_ref(src: str, prop: str) -> dict:

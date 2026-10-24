@@ -153,10 +153,14 @@ class PageView:
     ) -> dict:
         n = len(self.elements)
         if pos is None:
-            item_w = (self.width - 40) // self.cols
+            # Clamp to a positive size: a narrow page (width < 2 * margin) would
+            # otherwise emit a negative width into the layout, which the renderer
+            # treats as a corrupt position.
+            item_w = max((self.width - 40) // self.cols, 1)
             x, y, w, h = _Cursor(
                 20, 20, self.width, self.cols, self.row_h, start_index=n
             ).next(item_w, self.row_h)
+            x, y = max(x, 0), max(y, 0)
         else:
             x, y, w, h = pos
         _set_position(container, x, y, w, h)
