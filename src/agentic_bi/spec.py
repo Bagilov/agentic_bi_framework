@@ -58,11 +58,21 @@ _ELEMENT_TYPES = {"kpi", "chart", "table"}
 
 
 def _field_dict(f: dict) -> dict:
-    """Normalize a field dict into the board.col()/measure() format."""
+    """Normalize a field dict into the board.col()/measure() format.
+
+    The spec is untrusted input, so a malformed field fails here with a message
+    naming the offending value, instead of a bare `KeyError`/`AttributeError`
+    much later in `spec_to_board`.
+    """
+    if not isinstance(f, dict):
+        raise ValueError(f"a field must be a mapping, got {type(f).__name__}: {f!r}")
+    prop = f.get("property")
+    if not prop:
+        raise ValueError(f"a field must have a 'property' key: {f!r}")
     kind = f.get("kind", "column")
     if kind == "measure":
-        return measure(f["property"], f.get("display"))
-    return col(f["property"], f.get("display"), agg=f.get("agg"))
+        return measure(prop, f.get("display"))
+    return col(prop, f.get("display"), agg=f.get("agg"))
 
 
 @dataclass
@@ -108,6 +118,8 @@ class DashboardSpec:
 
 
 def _parse_element(e: dict) -> ElementSpec:
+    if not isinstance(e, dict):
+        raise ValueError(f"an element must be a mapping, got {type(e).__name__}: {e!r}")
     etype = e.get("type", "table")
     if etype not in _ELEMENT_TYPES:
         raise ValueError(
@@ -126,28 +138,37 @@ def _parse_element(e: dict) -> ElementSpec:
 
 
 def _parse_page(p: dict) -> PageSpec:
+    if not isinstance(p, dict):
+        raise ValueError(f"a page must be a mapping, got {type(p).__name__}: {p!r}")
+    elements = p.get("elements", []) or []
+    if not isinstance(elements, list):
+        raise ValueError(f"page '{p.get('name')}': elements must be a list")
     return PageSpec(
         name=p.get("name"),
         title=p.get("title"),
         header=p.get("header"),
-        filters=p.get("filters", []),
-        elements=[_parse_element(e) for e in p.get("elements", [])],
+        filters=p.get("filters", []) or [],
+        elements=[_parse_element(e) for e in elements],
     )
 
 
 def from_dict(d: dict) -> DashboardSpec:
-    """Build a spec from a dict (after YAML/JSON)."""
+    """Build a spec from a dict (after YAML/JSON).
+
+    A missing `name` is defaulted to an empty string so `validate_spec` reports
+    it as a problem (untrusted input must not crash on a bare `KeyError`).
+    """
     dash = d.get("dashboard", d)
-    pages = [_parse_page(p) for p in dash.get("pages", [])]
+    pages = [_parse_page(p) for p in dash.get("pages", []) or []]
     return DashboardSpec(
-        name=dash["name"],
+        name=dash.get("name", ""),
         table=dash.get("table", "fact_table"),
         measure_table=dash.get("measure_table"),
         pages=pages,
-        quality=d.get("quality", {}),
-        deploy=d.get("deploy", {}),
-        control=d.get("control", {}),
-        support=d.get("support", {}),
+        quality=d.get("quality", {}) or {},
+        deploy=d.get("deploy", {}) or {},
+        control=d.get("control", {}) or {},
+        support=d.get("support", {}) or {},
     )
 
 
@@ -205,7 +226,7 @@ def spec_to_board(spec: DashboardSpec) -> Board:
         page = board.add_page(ps.name, title=ps.title)
         page.filters(ps.filters)
         if ps.header:
-            page.header(ps.header, pos=ps.header and None)
+            page.header(ps.header)
         for el in ps.elements:
             pos = tuple(el.pos) if el.pos else None
             if el.type == "kpi":
@@ -220,25 +241,10 @@ def spec_to_board(spec: DashboardSpec) -> Board:
 
 
 def validate_spec(spec: DashboardSpec) -> list[str]:
-    """Structural validation of a spec; returns problems (empty = ok)."""
-    problems: list[str] = []
-    if not spec.name:
-        problems.append("Missing dashboard.name")
-    if not spec.table:
-        problems.append("Missing dashboard.table")
-    if not spec.pages:
-        problems.append("No pages (dashboard.pages) — the board is empty")
-    for p in spec.pages:
-        if not p.name:
-            problems.append("Page without name")
-        for el in p.elements:
-            if el.type == "kpi" and not el.field:
-                problems.append(f"{p.name}/kpi: missing field")
-            if el.type == "chart" and (not el.axis or not el.value):
-                problems.append(f"{p.name}/chart: axis and value are required")
-            if el.type == "table" and not el.fields:
-                problems.append(f"{p.name}/table: missing fields")
-    return problems
+    """Structural validation (see `spec_validate.validate_spec`)."""
+    from agentic_bi.spec_validate import validate_spec as _validate
+
+    return _validate(spec)
 
 
 __all__ = [

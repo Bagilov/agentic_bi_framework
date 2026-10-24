@@ -21,6 +21,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from agentic_bi.layout_meta import decode_layout
 from agentic_bi.web_report.web_checks import element_issues
 from agentic_bi.web_report.web_model import (
     ElementReport,
@@ -44,12 +45,7 @@ _FONT_LITERAL_RE = re.compile(
 
 
 def _decode_layout(raw: bytes) -> dict:
-    for enc in ("utf-16-le", "utf-8-sig", "utf-8"):
-        try:
-            return json.loads(raw.decode(enc))
-        except Exception:  # noqa: BLE001
-            continue
-    raise ValueError("cannot decode Report/Layout")
+    return decode_layout(raw)
 
 
 def load_layout(pbix: str | Path) -> dict:
@@ -79,6 +75,19 @@ def _projected_fields(sv: dict) -> tuple[list[str], list[str]]:
             if qref:
                 fields.append(qref)
     return fields, roles
+
+
+def _num(value: Any) -> float:
+    """Coerce a layout coordinate to float, tolerating a non-numeric value.
+
+    The layout is untrusted: a string `"abc"` (or a nested object) in `x`/`y`/
+    `width`/`height` must not abort the whole inspection, so an unparsable value
+    counts as 0.
+    """
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _count_filters(raw: Any) -> int:
@@ -140,10 +149,10 @@ def _element(vc: dict, idx: int, page: str, registry: dict | None) -> ElementRep
         index=idx,
         visual_type=sv.get("visualType") or "unknown",
         title=_visual_title(cfg),
-        x=float(vc.get("x") or 0),
-        y=float(vc.get("y") or 0),
-        width=float(vc.get("width") or 0),
-        height=float(vc.get("height") or 0),
+        x=_num(vc.get("x")),
+        y=_num(vc.get("y")),
+        width=_num(vc.get("width")),
+        height=_num(vc.get("height")),
         fields=fields,
         roles=roles,
         colors=colors,

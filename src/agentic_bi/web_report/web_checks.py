@@ -29,16 +29,28 @@ NON_DATA_TYPES = DECORATIVE_VISUAL_TYPES
 
 
 def has_in_filter(raw: Any) -> bool:
-    """Whether a visual/page filter blob contains an unsafe `Condition.In`."""
+    """Whether a visual/page filter blob contains an unsafe `Condition.In`.
+
+    The blob is untrusted: a list of non-dicts, or a filter whose `filter` is not
+    a mapping, must not raise — it is skipped, and a blob that cannot be parsed
+    at all is treated as unsafe (fail-closed, as before).
+    """
     if not raw or raw == "[]":
         return False
     try:
         flts = json.loads(raw)
     except (ValueError, TypeError):
         return True
-    for f in flts or []:
-        for w in f.get("filter", {}).get("Where", []):
-            if "In" in w.get("Condition", {}):
+    if not isinstance(flts, list):
+        return True
+    for f in flts:
+        if not isinstance(f, dict):
+            continue
+        where = (f.get("filter") or {}).get("Where") or []
+        if not isinstance(where, list):
+            continue
+        for w in where:
+            if isinstance(w, dict) and "In" in (w.get("Condition") or {}):
                 return True
     return False
 
@@ -79,7 +91,7 @@ def element_issues(
             )
         )
     if registry is not None:
-        issues.extend(_field_issues(vt, sv.get("prototypeQuery") or {}, registry))
+        issues.extend(_field_issues(vt, _as_prototype_query(sv), registry))
     return issues
 
 
@@ -142,10 +154,26 @@ def _shape_issues(vt: str, sv: dict, roles: list[str], decorative: bool) -> list
     return issues
 
 
+def _as_prototype_query(sv: dict) -> dict:
+    """Return the visual's `prototypeQuery` as a dict.
+
+    `prototypeQuery` is usually a dict in `config`, but a layout may carry it as a
+    JSON string (Power BI does this for `query`), and the layout is untrusted: a
+    string (or any non-dict) must not make `.get` raise, so a non-dict yields {}.
+    """
+    pq = sv.get("prototypeQuery")
+    if isinstance(pq, str):
+        try:
+            pq = json.loads(pq)
+        except (ValueError, TypeError):
+            return {}
+    return pq if isinstance(pq, dict) else {}
+
+
 def _projection_issues(vt: str, sv: dict) -> list[Issue]:
     """Every projection `queryRef` must match a `prototypeQuery.Select` name."""
     issues: list[Issue] = []
-    pq = sv.get("prototypeQuery") or {}
+    pq = _as_prototype_query(sv)
     select_names = {
         s.get("Name") for s in (pq.get("Select") or []) if isinstance(s, dict)
     }

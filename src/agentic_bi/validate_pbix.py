@@ -80,8 +80,13 @@ def validate_layout(layout: dict, registry: dict | None = None) -> list[str]:
 
     Checks all model references: sections->filters, visualContainers->filters,
     and prototypeQuery.Select (Column/Measure/Aggregation) against the registry.
+
+    An explicitly empty registry `{}` is honored as "no known objects" (every
+    reference is a problem); only `None` falls back to `EXAMPLE_REGISTRY`, so a
+    caller cannot accidentally validate against the sample model.
     """
-    registry = registry or EXAMPLE_REGISTRY
+    if registry is None:
+        registry = EXAMPLE_REGISTRY
     problems: list[str] = []
 
     def check_ref(entity: str | None, prop: str | None, kind: str, where: str) -> None:
@@ -123,7 +128,9 @@ def validate_layout(layout: dict, registry: dict | None = None) -> list[str]:
             # query / prototype query
             cfg = _as_obj(vc.get("config")) or {}
             sv = cfg.get("singleVisual") or {}
-            pq = sv.get("prototypeQuery") or _as_obj(vc.get("query")) or {}
+            pq = _as_obj(sv.get("prototypeQuery")) or _as_obj(vc.get("query")) or {}
+            if not isinstance(pq, dict):
+                pq = {}
             alias2ent = {f.get("Name"): f.get("Entity") for f in (pq.get("From") or [])}
             for sel in pq.get("Select") or []:
                 if not isinstance(sel, dict):

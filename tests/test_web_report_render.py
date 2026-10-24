@@ -111,6 +111,18 @@ def test_cli_writes_clone(template_pbix: Path, tmp_path: Path):
     assert "window.__REPORT_MODEL__" in body
 
 
+def test_cli_warns_when_model_checks_are_skipped(
+    template_pbix: Path, tmp_path: Path, capsys
+):
+    """Without a registry the membership layer is skipped and must be announced."""
+    from agentic_bi.web_report.web_cli import main
+
+    out = tmp_path / "no_registry.html"
+    rc = main(["--pbix", str(template_pbix), "--out", str(out)])
+    assert rc == 0
+    assert "model-membership checks were skipped" in capsys.readouterr().err
+
+
 def test_build_model_on_donor_template(template_pbix: Path):
     model = build_model(template_pbix)
     assert len(model.pages) >= 1

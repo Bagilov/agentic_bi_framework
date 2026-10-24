@@ -155,6 +155,10 @@ def _registry() -> dict[str, Threshold]:
 
 THRESHOLDS: dict[str, Threshold] = _registry()
 
+# Spec sections that merely wrap their domain's thresholds (one level deeper than
+# the key domain): ``quality: {thresholds: {...}}``, ``deploy: {guardrails: {...}}``.
+_CONTAINER_KEYS = {"thresholds", "guardrails"}
+
 
 # ─── catalog API ───────────────────────────────────────────
 
@@ -176,40 +180,95 @@ def describe(domain: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _flatten(overrides: dict) -> dict[str, Any]:
+    """Flatten spec overrides into `domain.name` keys.
+
+    Accepts both a flat dict (`{"quality.max_layout_problems": 1}`) and the
+    documented nested form. The spec nests the values one level deeper than the
+    key domain (`quality: {thresholds: {...}}`, `deploy: {guardrails: {...}}`),
+    so a second level whose name is a container (`thresholds`/`guardrails`) is
+    flattened too rather than producing a key that matches nothing.
+    """
+    flat: dict[str, Any] = {}
+    for k, v in (overrides or {}).items():
+        if not isinstance(v, dict):
+            flat[k] = v
+            continue
+        for kk, vv in v.items():
+            if isinstance(vv, dict) and kk in _CONTAINER_KEYS:
+                for kkk, vvv in vv.items():
+                    flat[f"{k}.{kkk}"] = vvv
+            else:
+                flat[f"{k}.{kk}"] = vv
+    return flat
+
+
 def resolve_thresholds(overrides: dict | None = None) -> dict[str, Any]:
     """Return effective threshold values, honoring spec overrides.
 
     ``overrides`` — a flat dict (e.g. ``{"quality.max_layout_problems": 1}``) or a
-    nested one ``{"quality": {"max_layout_problems": 1}}`` (flattened).
+    nested one, either ``{"quality": {"max_layout_problems": 1}}`` or the
+    documented ``{"quality": {"thresholds": {"max_layout_problems": 1}}}``.
+
+    An override whose type does not match the threshold's default is ignored (the
+    default is kept) and logged, so a bad value cannot reach a comparison as a
+    `TypeError` or silently weaken a gate.
     """
-    flat: dict[str, Any] = {}
-    for k, v in (overrides or {}).items():
-        if isinstance(v, dict):
-            for kk, vv in v.items():
-                flat[f"{k}.{kk}"] = vv
-        else:
-            flat[k] = v
-    out = {}
+    flat = _flatten(overrides or {})
+    out: dict[str, Any] = {}
     for key, t in THRESHOLDS.items():
-        out[key] = flat.get(key, t.value)
-    # also pass through unknown keys (project extensions)
+        if key in flat and not validate_override(key, flat[key]):
+            logger.warning(
+                "threshold %s: override %r has the wrong type (%s expected); "
+                "keeping the default %r",
+                key,
+                flat[key],
+                type(t.value).__name__,
+                t.value,
+            )
+            out[key] = t.value
+        else:
+            out[key] = flat.get(key, t.value)
+    # also pass through unknown keys (project extensions), but flag likely typos
     for k, v in flat.items():
-        out.setdefault(k, v)
+        if k not in THRESHOLDS:
+            logger.warning(
+                "threshold override %r is not in the catalog (typo?); ignored by "
+                "the built-in gates",
+                k,
+            )
+            out.setdefault(k, v)
     return out
 
 
 def get_threshold(key: str, overrides: dict | None = None):
-    """Return the effective value of a single threshold."""
+    """Return the effective value of a single threshold.
+
+    An unknown key returns `None` **and is logged**: a typo would otherwise
+    silently yield `None`, which then breaks a `value > threshold` comparison
+    with a `TypeError` far from the mistake.
+    """
+    if key not in THRESHOLDS:
+        logger.warning("unknown threshold key %r (typo?)", key)
     return resolve_thresholds(overrides).get(
         key, THRESHOLDS[key].value if key in THRESHOLDS else None
     )
 
 
 def validate_override(key: str, value: Any) -> bool:
-    """Check that a threshold override type matches the default."""
+    """Check that a threshold override type matches the default.
+
+    A `bool` is rejected for an `int` threshold even though `isinstance(True, int)`
+    is `True`: a `True`/`False` where a count is expected is a mistake, and it
+    would silently become `1`/`0` in a comparison.
+    """
     t = THRESHOLDS.get(key)
     if t is None:
         return True  # project threshold — type not checked
+    if isinstance(t.value, bool):
+        return isinstance(value, bool)
+    if isinstance(t.value, int) and isinstance(value, bool):
+        return False
     return isinstance(value, type(t.value))
 
 

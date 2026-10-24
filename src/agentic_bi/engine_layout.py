@@ -40,7 +40,14 @@ _THEME = "CY24SU05"
 
 
 def build_report(pages: list[tuple[str, list[Visual]]], report_id: int = 0) -> bytes:
-    """Return the bytes of `Report/Layout` for pages = [(name, [Visual, ...])]."""
+    """Return the bytes of `Report/Layout` for pages = [(name, [Visual, ...])].
+
+    At least one page is required: a report with zero sections has no
+    `boundSection` for its pod and is not a valid Power BI layout, so an empty
+    `pages` is a `ValueError` rather than an `IndexError` further down.
+    """
+    if not pages:
+        raise ValueError("a report needs at least one page")
     sections = []
     for ordinal, (page_name, visuals) in enumerate(pages):
         w, h, cols = 620, 300, 2
@@ -258,7 +265,10 @@ def gallery_visuals(table: str, columns: list) -> list[Visual]:
 
 def build_gallery(spec: dict, page_name: str = "Visual Gallery") -> bytes:
     """Single-page gallery of every supported visual kind for the first table."""
-    table = spec["tables"][0]
+    tables = spec.get("tables") or []
+    if not tables:
+        raise ValueError("a gallery needs at least one table in the spec")
+    table = tables[0]
     return build_report([(page_name, gallery_visuals(table["name"], table["columns"]))])
 
 
@@ -266,6 +276,11 @@ def build_layout_from_spec(
     spec: dict, visuals: list[Visual] | None = None, page_name: str | None = None
 ) -> bytes:
     """Assemble a report from the pipeline spec.
+
+    `spec` is the **engine** spec (`{"tables": [{"name", "columns"}]}`, built by
+    `engine.EnginePipeline.build_spec`), not the declarative `spec.DashboardSpec`
+    (which is turned into a `board.Board`, then a layout, by `spec_to_board`).
+    The two are different objects; do not feed one to the other.
 
     With `visuals` they are put on one page; otherwise visuals are auto-selected
     (table + cards + column + pie) for each table.

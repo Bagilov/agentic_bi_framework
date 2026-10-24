@@ -67,6 +67,13 @@ def main(argv: list[str] | None = None) -> int:
         f"pages={s['pages']} elements={s['elements']} issues={s['issues']} "
         f"(errors={s['error']} warnings={s['warning']} info={s['info']})"
     )
+    if not model.fields_checked:
+        print(
+            "warning: model-membership checks were skipped (no registry: pass "
+            "--registry/--model-registry or install pbixray); a clean result does "
+            "not cover table/column/measure references",
+            file=sys.stderr,
+        )
     return 0
 
 
