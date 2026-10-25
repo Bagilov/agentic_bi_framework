@@ -155,12 +155,15 @@ a non-zero exit.
 
 ### Stage 1 — CI, coverage gate, honest extras, writable paths (2–3 days)
 
-**Status: done.** Twelve files changed, 321 tests (was 299), coverage 58.66 %.
+**Status: done and green on `main`.** 17 files changed, 322 tests (was 299),
+coverage 58.66 %. CI run
+[40229597008](https://github.com/Bagilov/agentic_bi_framework/actions/runs/40229597008)
+passes all four jobs (lint, py3.10/py3.12 on Ubuntu, py3.12 on Windows).
 
 - ✅ `.github/workflows/ci.yml`: `lint` job (`ruff check` + `ruff format --check`)
   and `test` job — `ubuntu-latest` × Python 3.10/3.12 plus one `windows-latest`
   × 3.12 leg (the AS-engine path is Windows-only; the leg proves the core suite
-  passes there and needs no Desktop). The `test` job installs `.[all]`.
+  passes there and needs no Desktop). The `test` job installs `.[all,dev]`.
 - ✅ `pytest-cov`, `[tool.coverage.run] source`, and a **ratchet** gate at the
   measured floor. The floor is **55 %** against a measured **58.66 %** (the plan
   guessed 37 %; the real number is much higher). Verified negatively: a
@@ -176,6 +179,17 @@ a non-zero exit.
 - ✅ Temp spec leak made deterministic: a unique `TemporaryDirectory` (removed
   right after the build) replaces `pbix_spec_<epoch>.json`, whose 1-second
   resolution collided between parallel runs and left files behind.
+- ➕ **Three defects the matrix caught that local runs could not** (each is the
+  reason the corresponding job exists, and each now has a regression test):
+  - Python **3.10**: `tests/test_packaging_contract.py` imported `tomllib`
+    (3.11+), so the 3.10 leg failed to collect while 3.12 passed. Fixed with a
+    `tomli` fallback; `dev` declares `tomli>=2.0; python_version < '3.11'`.
+  - **Windows**: `test_as_dict_is_json_serialisable` compared `str(Path)` against
+    the POSIX literal `/tmp/x.pbix`; Windows joins with backslashes. Fixed to
+    compare against the same path object.
+  - **Node 20 deprecation**: `checkout@v4`/`setup-python@v5` were forced onto
+    Node 24; bumped to v7 (whose `runs.using` is `node24`) after checking the v7
+    breaking change does not apply to a `push`/`pull_request` workflow.
 - ➕ **Two install blockers found and fixed by measurement** (neither was in the
   plan): `server-native` declared `spnego>=0.4`, a distribution that no longer
   exists on PyPI (404; the module is now provided by `pyspnego`); and `server`
@@ -184,9 +198,10 @@ a non-zero exit.
   `resolution-too-deep` and made the whole `[all]` extra uninstallable. It is also
   Windows-only (`pywin32`), so it now carries a `sys_platform == "win32"` marker
   and a `>=0.5.2` floor.
-- Done when (all verified): CI config present and green-shaped on `main`; a
-  deliberate coverage drop fails; `.[guest]` imports `desktop_oracle_guest`; a
-  read-only install constructs `EnginePipeline` without writing into the package.
+- Done when (all verified): CI config present and green on `main` (four green
+  jobs on run 40229597008); a deliberate coverage drop fails; `.[guest]` imports
+  `desktop_oracle_guest`; a read-only install constructs `EnginePipeline` without
+  writing into the package.
 - Effort: 2–3 days.
 
 ### Stage 2 — Test the untested core, not the whole tree (1 week)

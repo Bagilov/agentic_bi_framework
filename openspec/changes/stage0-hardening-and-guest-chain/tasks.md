@@ -144,7 +144,10 @@
 - [x] 6.6 CI (этап 1 плана):
   - `.github/workflows/ci.yml`: job `lint` (ruff check + format) и job `test`:
     `ubuntu-latest` × Python 3.10/3.12 + `windows-latest` × 3.12, установка
-    `.[all]`, прогон `pytest --cov=agentic_bi` с ratchet-порогом;
+    `.[all,dev]`, прогон `pytest --cov=agentic_bi` с ratchet-порогом;
+  - **зелёный на `main`**: прогон
+    [40229597008](https://github.com/Bagilov/agentic_bi_framework/actions/runs/40229597008) —
+    все 4 job'а успешны;
   - покрытие измерено: 58.66 %, порог `fail_under = 55` в `[tool.coverage.report]`
     (ratchet, не цель: поднимать вместе с тестами, не опускать);
   - гейт проверен негативно: `--cov-fail-under=99` даёт exit 1, штатный порог —
@@ -157,6 +160,15 @@
     становился неустановимым); пакет к тому же Windows-only (`pywin32`), поэтому
     теперь `>=0.5.2` + маркер `sys_platform == "win32"`. Оба старых пина
     воспроизводимо падают, новые резолвятся на Linux и на win_amd64;
+  - **матрица поймала ещё три дефекта, недостижимых локально** (ради них она и
+    нужна; на каждый добавлен регрессионный тест):
+    Python 3.10 — `tomllib` есть только с 3.11, сбор падал (лега 3.12 проходила),
+    исправлено фолбэком на `tomli` (`dev`: `tomli>=2.0; python_version < '3.11'`);
+    Windows — тест сравнивал `str(Path)` с POSIX-литералом `/tmp/x.pbix`,
+    а Windows склеивает обратными слэшами (проверено `ntpath.normpath`);
+    Node 20 — `checkout@v4`/`setup-python@v5` принудительно гонялись на Node 24,
+    поднято до v7 (`runs.using: node24`), breaking change v7 к `push`/
+    `pull_request` не относится;
   - запись внутрь пакета устранена: `engine.py` (`work_dir`), `engine_host.py`
     (`cwd` дочернего процесса), `dax_detail.py`, `inspect_board.py`,
     `automate.py`, `build.py`, `board_fake.py`, `skeleton_assembly.py`,
@@ -164,10 +176,12 @@
     проверено на read-only установке: pre-fix `PermissionError`, post-fix exit 0;
   - утечка temp-спеки устранена: уникальный `TemporaryDirectory` + удаление
     сразу после сборки;
-  - симуляция CI в чистом venv: `pip install "<wheel>[all]"` + прогон против
-    **установленного** пакета — 321 passed, 2 skipped, покрытие 58.66 %;
-  - тесты: `tests/test_packaging_contract.py` (7) + расширения
-    `tests/test_cli_boundary.py` (13 новых). Итог: **321 passed, 2 skipped**.
-    Вакуумность проверена: против старых пинов падают 3 теста пакетного контракта.
+  - симуляция CI в чистом venv (свежий клон, `pip install ".[all,dev]"`, прогон
+    против **установленного** пакета): exit 0, 322 passed, 2 skipped,
+    покрытие 58.66 %;
+  - тесты: `tests/test_packaging_contract.py` (8) + расширения
+    `tests/test_cli_boundary.py` (13 новых). Итог: **322 passed, 2 skipped**.
+    Вакуумность проверена: против старых пинов падают 3 теста пакетного
+    контракта; фолбэк `tomli` прогоняется со замоканным `tomllib`.
 - [x] 6.7 Локальное ревью незакоммиченного кода: 6 находок закрыто, живой прогон
       после фиксов повторён
