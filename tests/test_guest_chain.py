@@ -106,12 +106,15 @@ class TestChainResult:
         assert not ChainResult(verdict=STAGE_FAILED).ok
         assert not ChainResult(verdict=TIMEOUT).ok
 
-    def test_as_dict_is_json_serialisable(self) -> None:
-        result = ChainResult(verdict=BUILT, pbix=Path("/tmp/x.pbix"), bytes_written=5)
+    def test_as_dict_is_json_serialisable(self, tmp_path: Path) -> None:
+        pbix = tmp_path / "x.pbix"
+        result = ChainResult(verdict=BUILT, pbix=pbix, bytes_written=5)
         result.record("vm", "started")
         payload = json.loads(json.dumps(result.as_dict()))
         assert payload["verdict"] == BUILT
-        assert payload["pbix"] == "/tmp/x.pbix"
+        # `as_dict` stringifies with `str(Path)`, whose separators differ by
+        # platform; compare against the same conversion, not a POSIX literal.
+        assert payload["pbix"] == str(pbix)
         assert payload["bytes"] == 5
         assert payload["log"] == ["vm: started"]
 
