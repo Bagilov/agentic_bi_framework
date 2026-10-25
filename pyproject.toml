@@ -51,9 +51,25 @@ spec = ["PyYAML>=6.0"]
 # Read-back / deep DAX-M analysis of an existing .pbix model.
 readback = ["pbixray>=0.4", "pandas>=2.0"]
 # Report Server (REST) publish + inspection.
-server = ["requests>=2.31", "requests-negotiate-sspi>=0.4", "urllib3>=2.0"]
-# Native Windows negotiation (SSPI/SPNEGO) for on-prem Report Server.
-server-native = ["spnego>=0.4"]
+#
+# `requests-negotiate-sspi` is Windows-only: it depends on `pywin32`, which ships
+# only Windows wheels, so a Linux CI leg can never install it. It also cannot use
+# the historical `>=0.4` pin: every sdist up to 0.5.0 declares its version as
+# `0.0.0` in its metadata, so `>=0.4` is unsatisfiable and pip exhausts its
+# resolution depth backtracking over the whole release history instead of
+# failing. 0.5.2 is the first release published as a wheel with a correct
+# version, hence the `>=0.5.2` floor. The platform marker keeps the extra
+# installable on Linux, where only the REST client (requests/urllib3) is used.
+server = [
+  "requests>=2.31",
+  "urllib3>=2.0",
+  "requests-negotiate-sspi>=0.5.2; sys_platform == 'win32'",
+]
+# Native negotiation (SPNEGO/Negotiate) for on-prem Report Server. The module is
+# imported as `spnego`, but the distribution is `pyspnego`: the old `spnego`
+# package no longer exists on PyPI (its name was reused and then removed), so
+# `spnego>=0.4` cannot resolve on any platform.
+server-native = ["pyspnego>=0.10"]
 # Brand auditing of .pptx documents.
 brand = ["python-pptx>=0.6.23", "lxml>=4.9"]
 # Parity export (Excel/Parquet) of lineage tables.
@@ -65,7 +81,7 @@ binary = ["xpress9>=0.3"]
 # Windows guest chain: WinRM to a UTM VM that runs the engine/oracle (see docs).
 guest = ["pywinrm>=0.5"]
 # Developer tooling: linter/formatter + tests.
-dev = ["ruff>=0.6", "pytest>=7.4"]
+dev = ["ruff>=0.6", "pytest>=7.4", "pytest-cov>=5.0"]
 # Everything.
 all = [
   "PyYAML>=6.0",
@@ -73,9 +89,9 @@ all = [
   "pandas>=2.0",
   "pyarrow>=14.0",
   "requests>=2.31",
-  "requests-negotiate-sspi>=0.4",
   "urllib3>=2.0",
-  "spnego>=0.4",
+  "requests-negotiate-sspi>=0.5.2; sys_platform == 'win32'",
+  "pyspnego>=0.10",
   "python-pptx>=0.6.23",
   "lxml>=4.9",
   "reportlab>=4.0",
@@ -113,6 +129,24 @@ ignore = ["E501"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.coverage.run]
+source = ["agentic_bi"]
+branch = false
+
+[tool.coverage.report]
+# Ratchet, not a target: the suite measures ~58% on Linux and Windows with the
+# `all` extra installed. The floor sits below that so platform-specific skips
+# cannot fail the build, but a real regression can. Raise it in the same change
+# that adds the tests, never lower it.
+fail_under = 55
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
