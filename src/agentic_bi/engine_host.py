@@ -33,6 +33,8 @@ import sys
 import time
 from pathlib import Path
 
+import agentic_bi.paths as paths
+
 logger = logging.getLogger(__name__)
 
 # Desktop executable and AS workspace root. Both prefer the RS build (the
@@ -163,10 +165,15 @@ def run_engine_build(spec_path: Path, abf: Path, port: int | None = None) -> str
 
 
 def run_oracle(pbix: Path, hold: int) -> str:
-    """Strict open check of `pbix` in Desktop RS; return the verdict token."""
+    """Strict open check of `pbix` in Desktop RS; return the verdict token.
+
+    The child runs from a scratch directory, not from the package: the oracle
+    only reads the absolute `pbix` it is given, so its cwd must not be tied to
+    where the source happens to live (a read-only install has no writable cwd).
+    """
     proc = subprocess.run(
         [sys.executable, str(ORACLE_PY), str(pbix.resolve()), str(hold)],
-        cwd=str(_HERE),
+        cwd=str(paths.scratch_dir("_run")),
         capture_output=True,
         text=True,
         timeout=hold + 120,

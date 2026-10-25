@@ -18,6 +18,8 @@ import json
 import logging
 from pathlib import Path
 
+import agentic_bi.paths as paths
+
 logger = logging.getLogger(__name__)
 
 # ─── Neutral example model (shape: table -> {"columns": [...], "measures": [...]}) ──
@@ -171,11 +173,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     import sys
 
-    p = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else (Path(__file__).parent / "output_files" / "sample.pbix")
-    )
+    p = sys.argv[1] if len(sys.argv) > 1 else (paths.output_dir("sample.pbix"))
     reg = load_registry(sys.argv[2]) if len(sys.argv) > 2 else None
     problems = validate_pbix(Path(p), reg)
     if problems:

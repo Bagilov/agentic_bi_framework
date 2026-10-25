@@ -23,6 +23,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import agentic_bi.paths as paths
 from agentic_bi.dax_markers import (
     DAX_DISTORT_MARKERS,
     M_DISTORT_MARKERS,
@@ -33,7 +34,7 @@ from agentic_bi.dax_markers import (
 
 logger = logging.getLogger(__name__)
 
-OUT_DIR = Path(__file__).resolve().parent / "output_files"
+OUT_DIR = paths.output_dir()
 
 
 def _flatten_exprs(measures: list[dict]) -> str:

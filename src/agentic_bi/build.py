@@ -28,6 +28,8 @@ import json
 import logging
 from pathlib import Path
 
+import agentic_bi.paths as paths
+
 logger = logging.getLogger(__name__)
 
 
@@ -226,7 +228,7 @@ def _write_json(path: Path, data: dict) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    out = Path(__file__).parent / "output_files" / "demo_events"
+    out = paths.output_dir("demo_events")
     tables = [
         {
             "name": "Events",

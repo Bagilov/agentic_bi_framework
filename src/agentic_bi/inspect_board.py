@@ -21,12 +21,13 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import agentic_bi.paths as paths
 from agentic_bi.reportserver.odata import odata_quote
 from agentic_bi.reportserver.pbix_analysis import PbiRsBulk
 
 logger = logging.getLogger(__name__)
 
-OUT_DIR = Path(__file__).resolve().parent / "output_files"
+OUT_DIR = paths.output_dir()
 
 
 class PbirsPathError(RuntimeError):

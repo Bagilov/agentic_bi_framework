@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+import agentic_bi.paths as paths
 from agentic_bi.skeleton_visuals import (
     card_visual,
     chart_visual,
@@ -267,7 +268,7 @@ def _write(base: Path, name: str, data: dict) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     # Example: a "behavior by groups" skeleton
-    out = Path(__file__).parent / "output_files" / "skel_behavior"
+    out = paths.output_dir("skel_behavior")
     table = "Data"
     columns = [
         {"name": "segment", "dataType": "string"},

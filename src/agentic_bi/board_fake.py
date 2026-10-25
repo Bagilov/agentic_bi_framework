@@ -23,6 +23,7 @@ import json
 import logging
 from pathlib import Path
 
+import agentic_bi.paths as paths
 from agentic_bi.automate import verify_published
 from agentic_bi.publish import publish_pbix
 from agentic_bi.rebuild import _extract_layout, rebuild_pbix
@@ -51,7 +52,7 @@ def build_and_publish(
     dry_run: bool = False,
 ) -> dict:
     src = Path(src)
-    out = Path(__file__).parent / "output_files" / f"{BOARD_NAME}.pbix"
+    out = paths.output_dir(f"{BOARD_NAME}.pbix")
 
     # These measures/columns already exist in the donor's binary model.
     columns = [

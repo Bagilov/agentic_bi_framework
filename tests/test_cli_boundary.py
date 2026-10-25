@@ -143,6 +143,151 @@ class TestDefaultOutputsAreCwdRelative:
             Path(mod.__file__).resolve().parent not in captured["out"].resolve().parents
         )
 
+    def test_dax_detail_out_dir_is_relative(self, monkeypatch, tmp_path) -> None:
+        from agentic_bi import dax_detail
+
+        monkeypatch.chdir(tmp_path)
+        assert dax_detail.OUT_DIR == Path("output_files")
+        assert Path(dax_detail.__file__).resolve().parent not in (
+            dax_detail.OUT_DIR.resolve().parents
+        )
+
+    def test_inspect_board_out_dir_is_relative(self, monkeypatch, tmp_path) -> None:
+        from agentic_bi import inspect_board
+
+        monkeypatch.chdir(tmp_path)
+        assert inspect_board.OUT_DIR == Path("output_files")
+        assert Path(inspect_board.__file__).resolve().parent not in (
+            inspect_board.OUT_DIR.resolve().parents
+        )
+
+
+class TestPackageRelativeWritesAreGone:
+    """Every default write path must live outside the installed package.
+
+    A read-only install (site-packages owned by another user) must not raise
+    `PermissionError` before doing any work; these pin the resolved locations.
+    """
+
+    def test_no_module_defaults_a_write_into_the_package(self) -> None:
+        from agentic_bi import (
+            board_fake,
+            build,
+            engine,
+            skeleton_assembly,
+            validate_pbix,
+        )
+
+        pkg = Path(engine.__file__).resolve().parent
+        candidates = [
+            engine.EnginePipeline(work_dir=None).work_dir,
+            build.paths.output_dir("demo_events"),
+            skeleton_assembly.paths.output_dir("skel_behavior"),
+            board_fake.paths.output_dir("board.pbix"),
+            validate_pbix.paths.output_dir("sample.pbix"),
+        ]
+        for path in candidates:
+            assert pkg not in path.resolve().parents, path
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "board_fake",
+            "build",
+            "dax_detail",
+            "engine",
+            "inspect_board",
+            "skeleton_assembly",
+            "validate_pbix",
+        ],
+    )
+    def test_module_source_has_no_package_relative_output_path(
+        self, module_name: str
+    ) -> None:
+        """The fix is structural: no `__file__`-anchored output path may remain."""
+        import importlib
+
+        module = importlib.import_module(f"agentic_bi.{module_name}")
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        for line in source.splitlines():
+            if "output_files" not in line:
+                continue
+            assert "__file__" not in line, f"{module_name}: {line.strip()}"
+
+    def test_engine_work_dir_is_under_the_temp_root(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from agentic_bi import engine
+
+        monkeypatch.setattr(engine.paths.tempfile, "gettempdir", lambda: str(tmp_path))
+        assert engine.EnginePipeline().work_dir == tmp_path / "agentic_bi" / "_work"
+        assert engine.EnginePipeline().work_dir.is_dir()
+
+    def test_output_dir_is_cwd_relative(self, monkeypatch, tmp_path) -> None:
+        from agentic_bi import paths
+
+        monkeypatch.chdir(tmp_path)
+        assert paths.output_dir("a", "b.json") == Path("output_files/a/b.json")
+        assert not paths.output_dir("a").is_absolute()
+
+    def test_scratch_dir_is_created_outside_the_package(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from agentic_bi import paths
+
+        monkeypatch.setattr(paths.tempfile, "gettempdir", lambda: str(tmp_path))
+        created = paths.scratch_dir("_test")
+        assert created.is_dir()
+        assert created == tmp_path / "agentic_bi" / "_test"
+
+
+class TestBuildDatamodelSpecHandling:
+    """The engine spec handoff must not leak temp files or collide across runs."""
+
+    def test_spec_file_is_unique_and_removed(self, monkeypatch, tmp_path) -> None:
+        from agentic_bi import engine
+
+        seen: list[Path] = []
+
+        def fake_build(spec_path: Path, abf: Path, port: int | None = None) -> str:
+            seen.append(Path(spec_path))
+            assert Path(spec_path).exists(), "spec must exist while the build runs"
+            abf.write_bytes(b"abf")
+            return "ok"
+
+        monkeypatch.setattr(engine.engine_host, "kill_desktop", lambda: None)
+        monkeypatch.setattr(engine.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(engine.engine_host, "wait_port", lambda *a, **k: 1234)
+        monkeypatch.setattr(engine.engine_host, "run_engine_build", fake_build)
+
+        pipeline = engine.EnginePipeline(work_dir=tmp_path / "w")
+        assert pipeline.build_datamodel({"database": "D", "tables": []}) == b"abf"
+
+        assert len(seen) == 1
+        assert not seen[0].exists(), "the temp spec must be cleaned up"
+
+    def test_two_builds_do_not_share_a_spec_path(self, monkeypatch, tmp_path) -> None:
+        from agentic_bi import engine
+
+        seen: list[Path] = []
+
+        def fake_build(spec_path: Path, abf: Path, port: int | None = None) -> str:
+            seen.append(Path(spec_path))
+            abf.write_bytes(b"abf")
+            return "ok"
+
+        monkeypatch.setattr(engine.engine_host, "kill_desktop", lambda: None)
+        monkeypatch.setattr(engine.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(engine.engine_host, "wait_port", lambda *a, **k: 1234)
+        monkeypatch.setattr(engine.engine_host, "run_engine_build", fake_build)
+
+        pipeline = engine.EnginePipeline(work_dir=tmp_path / "w")
+        pipeline.build_datamodel({"database": "D", "tables": []})
+        pipeline.build_datamodel({"database": "D", "tables": []})
+
+        assert len(seen) == 2
+        assert seen[0] != seen[1], "parallel runs must not collide on one spec path"
+
 
 def test_cli_support_exports_the_documented_codes() -> None:
     assert (EXIT_OK, EXIT_FAILED, EXIT_BAD_INPUT) == (0, 1, 2)

@@ -24,6 +24,7 @@ import argparse
 import logging
 from pathlib import Path
 
+import agentic_bi.paths as paths
 from agentic_bi.publish import publish_pbix
 from agentic_bi.rebuild import rebuild_pbix
 from agentic_bi.skeleton import build_skeleton
@@ -289,9 +290,7 @@ def main() -> None:
     out = (
         Path(args.out)
         if args.out
-        else Path(__file__).parent
-        / "output_files"
-        / f"{args.name.strip().removesuffix('.pbix')}.pbix"
+        else paths.output_dir(f"{args.name.strip().removesuffix('.pbix')}.pbix")
     )
 
     if args.skeleton:

@@ -33,19 +33,17 @@ import json
 import logging
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 import agentic_bi.engine_container as engine_container
 import agentic_bi.engine_host as engine_host
 import agentic_bi.engine_layout as engine_layout
 import agentic_bi.engine_verify as engine_verify
+import agentic_bi.paths as paths
 from agentic_bi.engine_host import DEFAULT_TEMPLATE, PBI_RS, WS_ROOT
 from agentic_bi.engine_types import coerce, typed_column
 
 logger = logging.getLogger(__name__)
-
-_HERE = Path(__file__).resolve().parent
 
 __all__ = ["DEFAULT_TEMPLATE", "PBI_RS", "WS_ROOT", "EnginePipeline"]
 
@@ -61,7 +59,7 @@ class EnginePipeline:
     ) -> None:
         self.template = Path(template)
         self.desktop = desktop
-        self.work_dir = Path(work_dir) if work_dir else _HERE / "output_files" / "_work"
+        self.work_dir = Path(work_dir) if work_dir else paths.scratch_dir("_work")
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
     # -- data -> spec -------------------------------------------------------
@@ -99,12 +97,16 @@ class EnginePipeline:
         port = engine_host.wait_port()
         logger.info("engine port %s", port)
 
-        spec_path = Path(tempfile.gettempdir()) / f"pbix_spec_{int(time.time())}.json"
-        spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+        # The spec is scratch input for the PowerShell build; it must not leak and
+        # must not collide between parallel runs. A temp *directory* gives both:
+        # a unique name per call, removed in the `finally` even on failure.
         abf = self.work_dir / "engine_out.abf"
         if abf.exists():
             abf.unlink()
-        tail = engine_host.run_engine_build(spec_path, abf, port=port)
+        with tempfile.TemporaryDirectory(prefix="pbix_spec_") as td:
+            spec_path = Path(td) / "spec.json"
+            spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+            tail = engine_host.run_engine_build(spec_path, abf, port=port)
         logger.info("engine tail: %s", tail.strip()[-200:])
         return abf.read_bytes()
 
