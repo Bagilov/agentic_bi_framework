@@ -10,17 +10,40 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Bagilov" }]
-keywords = ["powerbi", "pbix", "dax", "lineage", "brand-audit", "report-server", "agentic"]
+keywords = [
+    "powerbi",
+    "power-bi",
+    "pbix",
+    "dax",
+    "power-query",
+    "semantic-model",
+    "lineage",
+    "brand-audit",
+    "report-server",
+    "automation",
+    "cli",
+    "agentic",
+    "ai-agents",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+    "Topic :: Software Development :: Build Tools",
     "Operating System :: OS Independent",
 ]
 
 # Core runtime is stdlib-only. Optional integrations are grouped by concern.
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Bagilov/agentic_bi_framework"
+Repository = "https://github.com/Bagilov/agentic_bi_framework"
+Changelog = "https://github.com/Bagilov/agentic_bi_framework/releases"
 
 [project.optional-dependencies]
 # YAML/JSON declarative specs and brand config.
