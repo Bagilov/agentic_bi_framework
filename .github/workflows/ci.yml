@@ -49,8 +49,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install the package with all extras
-        run: pip install ".[all]" "pytest>=7.4" "pytest-cov>=5.0"
+      - name: Install the package with all extras and the dev tooling
+        run: pip install ".[all,dev]"
       - name: Show the resolved environment
         run: python -c "import sys, agentic_bi; print(sys.version); print(agentic_bi.__version__)"
       - name: pytest with the coverage ratchet

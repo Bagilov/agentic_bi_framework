@@ -20,7 +20,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import tomllib
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 (the package floor) has no tomllib
+    import tomli as tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -121,3 +124,20 @@ def test_ci_workflow_exists_and_covers_the_matrix() -> None:
     assert "ruff check" in text
     assert "ruff format --check" in text
     assert "pytest" in text
+    # The test job must install the dev extra too: the Python 3.10 leg needs
+    # `tomli`, which only the `dev` extra pulls in.
+    assert ".[all,dev]" in text
+
+
+def test_python_floor_modules_are_importable_here() -> None:
+    """Everything the suite imports must exist on the declared floor (3.10).
+
+    `tomllib` is 3.11+, so `tests/test_packaging_contract.py` guards it with a
+    `tomli` fallback. CI caught the un-guarded version: the 3.10 leg failed to
+    collect while 3.12 passed.
+    """
+    source = (REPO_ROOT / "tests" / "test_packaging_contract.py").read_text(
+        encoding="utf-8"
+    )
+    assert "except ModuleNotFoundError" in source
+    assert "import tomli as tomllib" in source

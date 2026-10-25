@@ -81,7 +81,14 @@ binary = ["xpress9>=0.3"]
 # Windows guest chain: WinRM to a UTM VM that runs the engine/oracle (see docs).
 guest = ["pywinrm>=0.5"]
 # Developer tooling: linter/formatter + tests.
-dev = ["ruff>=0.6", "pytest>=7.4", "pytest-cov>=5.0"]
+# `tomli` back-ports `tomllib` for Python 3.10 (the package floor); the markers
+# in the test read `pyproject.toml` with it.
+dev = [
+  "ruff>=0.6",
+  "pytest>=7.4",
+  "pytest-cov>=5.0",
+  "tomli>=2.0; python_version < '3.11'",
+]
 # Everything.
 all = [
   "PyYAML>=6.0",
