@@ -141,6 +141,33 @@
 - [x] 6.4 Сквозная проверка `.pbix`: pre-fix пишет битый, post-fix парсится
 - [x] 6.5 Cold-start guest-цепочка: `BUILT` + `MODEL_LOADED`, exit 0, VM
       остановлена цепочкой
-- [ ] 6.6 CI (этап 1 плана) — не начат
+- [x] 6.6 CI (этап 1 плана):
+  - `.github/workflows/ci.yml`: job `lint` (ruff check + format) и job `test`:
+    `ubuntu-latest` × Python 3.10/3.12 + `windows-latest` × 3.12, установка
+    `.[all]`, прогон `pytest --cov=agentic_bi` с ratchet-порогом;
+  - покрытие измерено: 58.66 %, порог `fail_under = 55` в `[tool.coverage.report]`
+    (ratchet, не цель: поднимать вместе с тестами, не опускать);
+  - гейт проверен негативно: `--cov-fail-under=99` даёт exit 1, штатный порог —
+    exit 0;
+  - сломанный extra исправлен (**два** блокера установки, оба найдены замером):
+    `spnego>=0.4` не существует на PyPI (404), дистрибутив теперь `pyspnego`
+    (модуль по-прежнему `spnego`); `requests-negotiate-sspi>=0.4` в `server`
+    невыполним — все sdist до 0.5.0 объявляют собственную версию как `0.0.0`,
+    pip уходит в backtracking и отдаёт `resolution-too-deep` (весь `[all]`
+    становился неустановимым); пакет к тому же Windows-only (`pywin32`), поэтому
+    теперь `>=0.5.2` + маркер `sys_platform == "win32"`. Оба старых пина
+    воспроизводимо падают, новые резолвятся на Linux и на win_amd64;
+  - запись внутрь пакета устранена: `engine.py` (`work_dir`), `engine_host.py`
+    (`cwd` дочернего процесса), `dax_detail.py`, `inspect_board.py`,
+    `automate.py`, `build.py`, `board_fake.py`, `skeleton_assembly.py`,
+    `validate_pbix.py` — новый модуль `paths.py` (`output_dir`/`scratch_dir`);
+    проверено на read-only установке: pre-fix `PermissionError`, post-fix exit 0;
+  - утечка temp-спеки устранена: уникальный `TemporaryDirectory` + удаление
+    сразу после сборки;
+  - симуляция CI в чистом venv: `pip install "<wheel>[all]"` + прогон против
+    **установленного** пакета — 321 passed, 2 skipped, покрытие 58.66 %;
+  - тесты: `tests/test_packaging_contract.py` (7) + расширения
+    `tests/test_cli_boundary.py` (13 новых). Итог: **321 passed, 2 skipped**.
+    Вакуумность проверена: против старых пинов падают 3 теста пакетного контракта.
 - [x] 6.7 Локальное ревью незакоммиченного кода: 6 находок закрыто, живой прогон
       после фиксов повторён
