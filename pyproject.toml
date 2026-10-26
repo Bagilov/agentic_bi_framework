@@ -142,11 +142,11 @@ source = ["agentic_bi"]
 branch = false
 
 [tool.coverage.report]
-# Ratchet, not a target: the suite measures ~58% on Linux and Windows with the
-# `all` extra installed. The floor sits below that so platform-specific skips
-# cannot fail the build, but a real regression can. Raise it in the same change
-# that adds the tests, never lower it.
-fail_under = 55
+# Ratchet, not a target: the suite measures ~60% locally (macOS, Python 3.12,
+# `all` extra) and the same on the Linux CI legs. The floor sits below the
+# measured value so a platform-specific skip cannot fail the build, but a real
+# regression can. Raise it in the same change that adds the tests, never lower.
+fail_under = 58
 show_missing = true
 skip_covered = true
 exclude_lines = [
