@@ -141,3 +141,48 @@ def test_python_floor_modules_are_importable_here() -> None:
     )
     assert "except ModuleNotFoundError" in source
     assert "import tomli as tomllib" in source
+
+
+def test_no_test_parameter_carries_a_huge_literal() -> None:
+    """A large literal in `parametrize` breaks the suite on Windows.
+
+    pytest writes the current test id into `PYTEST_CURRENT_TEST`, and Windows
+    caps an environment variable at 32767 characters. A `parametrize` entry such
+    as `b"y" * 100_000` therefore fails at teardown with
+    `ValueError: the environment variable is longer than 32767 characters`
+    (observed on the `windows-latest` CI leg, while Linux and macOS passed).
+
+    Parameters are scanned structurally: any string/bytes constant, or constant
+    `str/bytes * int` fold, that would render past the cap.
+    """
+    import ast
+
+    limit = 8_000  # well under 32767, leaving room for the module/test prefix
+    offenders: list[str] = []
+    for path in sorted((REPO_ROOT / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "attr", "") == "parametrize"
+            ):
+                continue
+            for arg in node.args:
+                for sub in ast.walk(arg):
+                    size: int | None = None
+                    if isinstance(sub, ast.Constant) and isinstance(
+                        sub.value, (str, bytes)
+                    ):
+                        size = len(sub.value)
+                    elif (
+                        isinstance(sub, ast.BinOp)
+                        and isinstance(sub.op, ast.Mult)
+                        and isinstance(sub.left, ast.Constant)
+                        and isinstance(sub.right, ast.Constant)
+                        and isinstance(sub.left.value, (str, bytes))
+                        and isinstance(sub.right.value, int)
+                    ):
+                        size = len(sub.left.value) * sub.right.value
+                    if size is not None and size >= limit:
+                        offenders.append(f"{path.name}:{node.lineno} ~{size} chars")
+    assert offenders == [], f"oversized parametrize literals: {offenders}"

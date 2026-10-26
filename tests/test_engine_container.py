@@ -84,10 +84,14 @@ class TestSwapDatamodel:
                 if name != "DataModel":
                     assert z.read(name) == read_member(template, name)
 
-    @pytest.mark.parametrize("payload", [b"", b"x", b"y" * 100_000])
+    @pytest.mark.parametrize("size", [0, 1, 100_000])
     def test_grow_and_shrink_keep_the_archive_consistent(
-        self, tmp_path: Path, payload: bytes
+        self, tmp_path: Path, size: int
     ) -> None:
+        # The payload is built here, not passed as a parameter: pytest records
+        # the parameter repr in `PYTEST_CURRENT_TEST`, and a 100 kB bytes literal
+        # exceeds Windows' 32767-character environment limit (CI caught it).
+        payload = b"y" * size
         template = _template(tmp_path)
         out = tmp_path / "out.pbix"
         swap_datamodel(template, payload, out)
