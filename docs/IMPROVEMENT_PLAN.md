@@ -206,6 +206,17 @@ passes all four jobs (lint, py3.10/py3.12 on Ubuntu, py3.12 on Windows).
 
 ### Stage 2 — Test the untested core, not the whole tree (1 week)
 
+**Status: done.** 6 new test files, 437 tests (was 322), coverage 59.97 %, and the
+ratchet floor raised 55 → 58 in the same change.
+
+The three write paths, measured after this stage (target was ≥ 70 %):
+
+| Module | Before | After |
+|---|---|---|
+| `validate_pbix.py` | 37 % | **89 %** |
+| `rebuild.py` | 21 % | **98 %** |
+| `engine_container.py` | 91 % | **100 %** |
+
 Priority order is by blast radius, not by module size:
 
 1. `validate_pbix.py`, `rebuild.py`, `engine_container.py` — the paths that
@@ -231,9 +242,25 @@ Do **not** chase `reportserver/` or `publish.py` coverage: they need a live
 server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
 `desktop_oracle_guest.py` entirely until they are removed from the package.
 
-- Done when: coverage ≥ 55 %, with the three write paths above at ≥ 70 %; golden
-  round-trip tests exist; no new test skipped on macOS.
+- Done when (all verified): coverage 59.97 % (≥ 55 %), with the three write paths
+  at 89/98/100 % (≥ 70 %); golden `parse → serialize → parse` snapshots exist for
+  the virtual directory and backup log; every strict prefix and a deterministic
+  mutation sweep raise only domain errors, never `IndexError`/`MemoryError`;
+  `swap_datamodel` with an identical payload is byte-identical; no new test
+  skipped on macOS (still the two Windows-guest skips).
 - Effort: ~1 week.
+
+**Defects and dead code found while writing these tests** (not in the plan):
+
+- `layout_meta.decode_layout_with_encoding` reported `utf-8-sig` for a *BOM-less*
+  UTF-8 source, so `rebuild_pbix` re-encoded with `json.dumps(...).encode(
+  "utf-8-sig")` and *added* a BOM the source never had — the opposite of the
+  documented "UTF-8 sources are preserved as UTF-8". Now returned only when the
+  bytes actually carry the BOM (`_ENCODINGS` reordered, explicit BOM check).
+- `rebuild._default_content_types` was dead since the first commit (no caller,
+  no test, not in any doc); removed per the workspace rule that dead code is
+  deleted rather than kept "for later". Its removal is why `rebuild.py` reaches
+  98 % instead of 79 %.
 
 ### Stage 3 — Public contract and packaging (2–3 days)
 
