@@ -26,40 +26,6 @@ from agentic_bi.layout_meta import decode_layout_with_encoding
 logger = logging.getLogger(__name__)
 
 
-def _default_content_types(parts: list[str]) -> str:
-    """Produce a full [Content_Types].xml from the package part names."""
-    defaults = {
-        "json": 'ContentType="application/json"',
-        "xml": 'ContentType="application/xml"',
-    }
-    lines = []
-    for ext, ct in defaults.items():
-        lines.append(f'  <Default Extension="{ext}" {ct} />')
-    # Overrides for specific parts; DataModel and Layout are the key ones
-    override_map = {
-        "/Version": "",
-        "/DiagramLayout": "",
-        "/Report/Layout": 'ContentType="application/x-powerbi-report-layout"',
-        "/Settings": 'ContentType="application/json"',
-        "/Metadata": 'ContentType="application/json"',
-        "/Report/LinguisticSchema": "",
-        "/SecurityBindings": "",
-        "/DataModel": 'ContentType="application/x-msapplication#DataModel"',
-    }
-    for part in parts:
-        if part in override_map:
-            ct = override_map[part]
-            attr = f" {ct}" if ct else ""
-            if f'PartName="{part}"' not in "\n".join(lines):
-                lines.append(f'  <Override PartName="{part}"{attr} />')
-    return (
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
-        + "\n".join(lines)
-        + "\n</Types>"
-    )
-
-
 def _extract_layout(src: Path) -> tuple[dict, str]:
     """Extract Report/Layout from a ready .pbix (sample of model references).
 
