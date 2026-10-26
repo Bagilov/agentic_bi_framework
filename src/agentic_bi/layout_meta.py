@@ -44,7 +44,8 @@ DECORATIVE_VISUAL_TYPES = frozenset(
     }
 )
 
-_ENCODINGS = ("utf-8-sig", "utf-8")
+_ENCODINGS = ("utf-8", "utf-8-sig")
+_UTF8_BOM = b"\xef\xbb\xbf"
 
 
 def decode_layout_with_encoding(raw: bytes) -> tuple[dict, str]:
@@ -53,12 +54,20 @@ def decode_layout_with_encoding(raw: bytes) -> tuple[dict, str]:
     Returns the parsed layout and the encoding name it was read as, so a caller
     that re-writes the member can preserve the original encoding. Raises
     `ValueError` when no candidate decodes to JSON.
+
+    The reported name is BOM-aware: `utf-8-sig` is returned **only** when the
+    bytes actually carry a UTF-8 BOM. Reporting it for a BOM-less source made
+    `rebuild_pbix` re-encode with `json.dumps(...).encode("utf-8-sig")`, which
+    *adds* a BOM the source never had — the opposite of "UTF-8 sources are
+    preserved as UTF-8".
     """
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         enc = "utf-16be" if raw.startswith(b"\xfe\xff") else "utf-16le"
         return json.loads(raw.decode("utf-16")), enc
     if len(raw) > 1 and raw[1] == 0:  # UTF-16LE without BOM
         return json.loads(raw.decode("utf-16-le")), "utf-16le"
+    if raw.startswith(_UTF8_BOM):
+        return json.loads(raw.decode("utf-8-sig")), "utf-8-sig"
     for enc in _ENCODINGS:
         try:
             return json.loads(raw.decode(enc)), enc
