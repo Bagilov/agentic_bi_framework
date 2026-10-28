@@ -87,6 +87,11 @@ dev = [
   "ruff>=0.6",
   "pytest>=7.4",
   "pytest-cov>=5.0",
+  # Bounded so the tracked baseline stays reproducible: the measured 164 errors
+  # come from mypy 2.x. An unbounded floor silently re-baselines on every
+  # release and, once the ratchet's baseline reaches zero, a checker release
+  # that changes semantics breaks the build with no code change.
+  "mypy>=1.8,<2.5",
   "tomli>=2.0; python_version < '3.11'",
 ]
 # Everything.
@@ -140,6 +145,23 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
 
+[tool.mypy]
+# Report-only (Stage 3 of docs/IMPROVEMENT_PLAN.md): the current count is a
+# tracked baseline, not a gate. The dominant code is `attr-defined` on the
+# lineage mixins, where `PbiLineage` composes `ModelMixin`/`ExportMixin`/... and
+# mypy cannot see the attributes a sibling mixin defines. Those are real
+# annotations, not `Any`; they need a shared Protocol, which is a separate
+# change. CI runs this step under a baseline ratchet (`MYPY_BASELINE` in
+# .github/workflows/ci.yml) so the count cannot grow; when it reaches zero the
+# ratchet is replaced by a plain blocking `mypy`.
+python_version = "3.10"
+files = ["src/agentic_bi"]
+# Optional integrations (`pyarrow`, `xpress9`, `pywinrm`, `pbixray`, ...) are
+# absent in a stdlib-only environment and the package degrades cleanly, so a
+# missing third-party stub is not an error here.
+ignore_missing_imports = true
+warn_unused_configs = true
+
 [tool.coverage.run]
 source = ["agentic_bi"]
 branch = false
@@ -165,4 +187,8 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-agentic_bi = ["brand_config.yaml", "_engine_build.ps1"]
+# `py.typed` ships the inline type information the package already carries, so a
+# consumer's type checker sees the annotations instead of treating the whole
+# package as untyped. `_engine_build.ps1` is invoked as a script by
+# `engine_host.run_engine_build`, so it is runtime data, not build input.
+agentic_bi = ["brand_config.yaml", "_engine_build.ps1", "py.typed"]

@@ -18,6 +18,8 @@ mistakes cannot come back unnoticed.
 
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 try:  # Python 3.11+
@@ -27,6 +29,7 @@ except ModuleNotFoundError:  # Python 3.10 (the package floor) has no tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 # Distribution names that must never appear in the declared dependencies: removed
 # from PyPI, or renamed. The module may still be imported under the old name.
@@ -40,6 +43,69 @@ NEGOTIATE_MIN = "0.5.2"
 
 def _project() -> dict:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
+
+
+def _pyproject() -> dict:
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+
+
+def _load_ci_workflow() -> str:
+    return CI_WORKFLOW.read_text(encoding="utf-8")
+
+
+def _ci_step_blocks() -> list[str]:
+    """Split the workflow into per-step text blocks, without requiring PyYAML.
+
+    PyYAML is an optional (`spec`/`all`) dependency and the module contract is
+    that the stdlib-only suite runs anywhere, so this does not import it. A
+    GitHub step starts with `      - ` (6-space list item); everything indented
+    deeper belongs to it. Returning whole blocks lets an assertion be scoped to
+    the step that actually runs a given command, instead of matching a substring
+    that any other step could satisfy.
+    """
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in _load_ci_workflow().splitlines():
+        if line.startswith("      - "):
+            if current:
+                blocks.append("\n".join(current))
+            current = [line]
+        elif current and (line.startswith("        ") or not line.strip()):
+            current.append(line)
+        elif current:
+            blocks.append("\n".join(current))
+            current = []
+    if current:
+        blocks.append("\n".join(current))
+    return blocks
+
+
+def _step_running(command: str) -> str:
+    """Return the single CI step block whose `run` invokes `command`.
+
+    Matching is scoped to the step's `run` value, so a step that merely mentions
+    the command elsewhere (e.g. `pip install "mypy>=1.8"`) does not qualify.
+    Both forms are handled: a one-line `run: mypy ...` and a `run: |` block whose
+    first command line is `mypy ...`.
+    """
+    matches = []
+    for block in _ci_step_blocks():
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("run:"):
+                continue
+            value = stripped[len("run:") :].strip()
+            body_matches = value == command or value.startswith(f"{command} ")
+            block_matches = value in ("|", ">") and any(
+                inner.strip().startswith(command)
+                for inner in block.splitlines()
+                if inner.startswith("          ")
+            )
+            if body_matches or block_matches:
+                matches.append(block)
+                break
+    assert len(matches) == 1, f"expected exactly one CI step running {command!r}"
+    return matches[0]
 
 
 def _requirement_name(requirement: str) -> str:
@@ -186,3 +252,87 @@ def test_no_test_parameter_carries_a_huge_literal() -> None:
                     if size is not None and size >= limit:
                         offenders.append(f"{path.name}:{node.lineno} ~{size} chars")
     assert offenders == [], f"oversized parametrize literals: {offenders}"
+
+
+def test_py_typed_marker_is_shipped() -> None:
+    """`py.typed` must exist, be tracked, and be declared as package data.
+
+    Without the file the package is treated as untyped by a consumer's checker;
+    without the package-data entry it exists in the tree but not in the wheel.
+    Without the file being **tracked**, CI checks out a tree without it: this
+    test would turn red there and every wheel built from that commit would omit
+    the marker while `package-data` still claims it ships.
+    """
+    marker = REPO_ROOT / "src" / "agentic_bi" / "py.typed"
+    assert marker.exists(), "src/agentic_bi/py.typed is missing"
+    package_data = _pyproject()["tool"]["setuptools"]["package-data"]["agentic_bi"]
+    assert "py.typed" in package_data, "py.typed is not declared as package data"
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "src/agentic_bi/py.typed"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert tracked.returncode == 0, (
+        "src/agentic_bi/py.typed is not tracked by git; `git add` it or CI and "
+        "clean-clone wheels will not ship it"
+    )
+
+
+def test_runtime_script_data_is_declared_as_package_data() -> None:
+    """`_engine_build.ps1` is spawned by `engine_host`, so it must ship.
+
+    It is runtime data, not build input: the engine CLI reads it from the
+    installed package, so excluding it would break `agentic-bi-engine`.
+    """
+    package_data = _pyproject()["tool"]["setuptools"]["package-data"]["agentic_bi"]
+    assert "_engine_build.ps1" in package_data
+
+
+def test_mypy_runs_in_ci_with_a_baseline_ratchet() -> None:
+    """Stage 3: a type checker runs in CI, report-only but observably pinned.
+
+    The step deliberately does not use `continue-on-error`; instead it compares
+    the observed error count to `MYPY_BASELINE` and fails when the count grows,
+    so a regression (or a silently zero-target run) cannot read as success. The
+    assertions below are scoped to the `mypy` step so a flag somewhere else in
+    the workflow cannot satisfy them.
+    """
+    mypy = _pyproject()["tool"]["mypy"]
+    assert mypy["python_version"] == "3.10"
+    assert "src/agentic_bi" in mypy["files"]
+    assert mypy["ignore_missing_imports"] is True
+
+    step = _step_running("mypy")
+    # The ratchet is the observable contract: a baseline is declared and the
+    # step compares against it, rather than being unconditionally non-blocking.
+    assert "MYPY_BASELINE" in step, "the mypy step must declare a tracked baseline"
+    assert "continue-on-error" not in step, (
+        "the ratchet must be able to fail; report-only comes from the non-zero "
+        "baseline, not from a blanket continue-on-error"
+    )
+    # A declared baseline that is never compared would make the step a no-op.
+    baseline = re.search(r"MYPY_BASELINE:\s*\"?(\d+)\"?", step)
+    assert baseline, "the mypy step must declare a numeric MYPY_BASELINE"
+    assert re.search(r"-gt\s+\"?\$MYPY_BASELINE", step), (
+        "the baseline must bound a comparison, not just be echoed"
+    )
+    # And the checker itself must be bounded, so the baseline is reproducible.
+    dev = _project()["optional-dependencies"]["dev"]
+    mypy_req = next(d for d in dev if _requirement_name(d) == "mypy")
+    assert "<" in mypy_req, f"the mypy requirement must be bounded: {mypy_req!r}"
+
+
+def test_dev_extra_declares_the_type_checker() -> None:
+    dev = _project()["optional-dependencies"]["dev"]
+    names = {_requirement_name(dep) for dep in dev}
+    assert "mypy" in names
+
+
+def test_ruff_selects_ble_and_ruf100() -> None:
+    """`BLE` must be on so a new blind except cannot slip in, `RUF100` so a
+    directive cannot outlive the code it suppressed."""
+    select = _pyproject()["tool"]["ruff"]["lint"]["select"]
+    assert "BLE" in select
+    assert "RUF100" in select

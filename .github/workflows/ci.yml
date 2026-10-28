@@ -30,6 +30,46 @@ jobs:
       - name: ruff format --check
         run: ruff format --check .
 
+  types:
+    name: types (mypy, report-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install the type checker
+        run: pip install "mypy>=1.8,<2.5"
+      # Report-only (Stage 3): the config in pyproject.toml is the contract, and
+      # the current count is a tracked baseline (`MYPY_BASELINE` below) rather
+      # than a gate. The step runs mypy, then asserts the observed error count
+      # has not grown, so a regression (or a silently zero-target run) fails
+      # even while the baseline is non-zero. When the baseline reaches zero the
+      # comparison is removed and this leg becomes a plain blocking `mypy`.
+      - name: mypy with a baseline ratchet (report-only)
+        env:
+          MYPY_BASELINE: "164"
+        run: |
+          # `-e` is the default for `run:` blocks, and mypy exits non-zero
+          # whenever the (non-zero) baseline is present, so it is disabled here
+          # and the exit code is judged by the ratchet instead.
+          set +e
+          mypy 2>&1 | tee mypy.out
+          found=$(sed -n 's/^Found \([0-9][0-9]*\) error.*/\1/p' mypy.out | tail -1)
+          if [ -z "$found" ]; then
+            # No "Found N errors" line means either a clean run or an
+            # infrastructure failure; distinguish them so a broken run cannot
+            # read as success.
+            grep -q '^Success' mypy.out || { echo "::error::mypy produced no result"; exit 1; }
+            found=0
+          fi
+          echo "mypy errors: $found (baseline $MYPY_BASELINE)"
+          if [ "$found" -gt "$MYPY_BASELINE" ]; then
+            echo "::error::mypy error count grew from $MYPY_BASELINE to $found"
+            exit 1
+          fi
+          exit 0
+
   test:
     name: test (py${{ matrix.python-version }} / ${{ matrix.os }})
     runs-on: ${{ matrix.os }}

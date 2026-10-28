@@ -61,6 +61,8 @@ class PbiLineage(ModelMixin, SourceMixin, QueryMixin, ExportMixin, PlantUmlMixin
         display_aliases: map of displayed table names -> physical ones
             (e.g. {"Sales Registry": "dim_registry"}).
             Used when visuals reference tables by display name.
+        origins: source-origin map as a `{"origins": [...]}` dict or a path to a
+            YAML/JSON file; `None` uses the built-in neutral default.
         brand_config: path to `brand_config.yaml/json` (brand rules for page
             compliance metrics); defaults to `brand.py`.
     """
@@ -72,7 +74,7 @@ class PbiLineage(ModelMixin, SourceMixin, QueryMixin, ExportMixin, PlantUmlMixin
         self,
         pbix_path: str | Path,
         display_aliases: dict[str, str] | None = None,
-        origins: list | dict | str | Path | None = None,
+        origins: dict | str | Path | None = None,
         brand_config: str | Path | None = None,
     ):
         self.pbix_path = Path(pbix_path).resolve()
