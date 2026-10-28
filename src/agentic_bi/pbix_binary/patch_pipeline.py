@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agentic_bi.engine_container import swap_datamodel
+from agentic_bi.engine.container import swap_datamodel
 from agentic_bi.pbix_binary import abf_codec, abf_relayout
 
 logger = logging.getLogger(__name__)

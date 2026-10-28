@@ -24,9 +24,10 @@ import sys
 import zipfile
 from pathlib import Path
 
-from agentic_bi import engine_container, engine_layout
 from agentic_bi.engine import DEFAULT_TEMPLATE, PBI_RS, EnginePipeline
-from agentic_bi.engine_layout import Visual
+from agentic_bi.engine import container as engine_container
+from agentic_bi.engine import layout as engine_layout
+from agentic_bi.engine.layout import Visual
 
 # Measures are added to the model next to the columns. Keep them meaningful for
 # the numeric columns of the table (adjust names/expressions per data set).

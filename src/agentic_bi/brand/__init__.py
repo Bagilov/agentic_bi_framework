@@ -2,10 +2,10 @@
 
 This module is now a **facade** over focused submodules:
 
-    brand_palette.py - ColorSpec + PALETTE_PRIMARY/PALETTE_ADDITIONAL
-    brand_fonts.py   - FontSpec + FONTS + weights + the local font library
-    brand_rules.py   - thresholds + the rule registry + Finding/rule_catalog
-    brand_eval.py    - theme evaluation (fonts/colors/background/elements)
+    palette.py       - ColorSpec + PALETTE_PRIMARY/PALETTE_ADDITIONAL
+    fonts.py         - FontSpec + FONTS + weights + the local font library
+    rules.py         - thresholds + the rule registry + Finding/rule_catalog
+    eval.py          - theme evaluation (fonts/colors/background/elements)
 
 It re-exports the public API so existing imports (``from agentic_bi.brand
 import ...``) keep working unchanged.
@@ -17,7 +17,7 @@ corporate style.
 
 from __future__ import annotations
 
-from agentic_bi.brand_eval import (
+from agentic_bi.brand.eval import (
     background_findings,
     check_brand_compliance,
     color_catalog,
@@ -28,7 +28,7 @@ from agentic_bi.brand_eval import (
     is_brand_font,
     is_fallback,
 )
-from agentic_bi.brand_fonts import (
+from agentic_bi.brand.fonts import (
     BRAND_ITALIC,
     BRAND_WEIGHTS,
     EMBEDDED_BRAND_FONTS,
@@ -39,12 +39,12 @@ from agentic_bi.brand_fonts import (
     font_catalog,
     font_files,
 )
-from agentic_bi.brand_palette import (
+from agentic_bi.brand.palette import (
     PALETTE_ADDITIONAL,
     PALETTE_PRIMARY,
     ColorSpec,
 )
-from agentic_bi.brand_rules import (
+from agentic_bi.brand.rules import (
     ALLOWED_WEIGHTS,
     BASE_ELEMENTS,
     BASE_ELEMENTS_MIN,

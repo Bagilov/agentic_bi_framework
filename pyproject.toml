@@ -113,10 +113,10 @@ all = [
 ]
 
 [project.scripts]
-agentic-bi-engine = "agentic_bi.engine_cli:main"
+agentic-bi-engine = "agentic_bi.engine.cli:main"
 agentic-bi-test-build = "agentic_bi.test_build:main"
 agentic-bi-visual-check = "agentic_bi.visual_check:main"
-agentic-bi-brand-audit = "agentic_bi.brand_audit:main"
+agentic-bi-brand-audit = "agentic_bi.brand.audit:main"
 agentic-bi-lineage = "agentic_bi.lineage.pbi_lineage:main"
 agentic-bi-antipatterns = "agentic_bi.antipatterns.pbi_antipatterns:main"
 agentic-bi-server = "agentic_bi.reportserver.diagnostics:main"

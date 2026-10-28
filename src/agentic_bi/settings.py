@@ -32,7 +32,7 @@ Public API:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 # Neutral names: valid Power BI identifiers that encode no donor. They are the
 # fallback only, so a caller that does not configure the model gets a layout
@@ -67,27 +67,18 @@ class ModelNames:
 DEFAULTS = ModelNames()
 
 
-def _from_env() -> dict[str, object]:
-    """Read the four names from the environment, dropping unset variables."""
-    names: dict[str, object] = {}
-    if value := os.environ.get(_ENV_TABLE):
-        names["table"] = value
-    if value := os.environ.get(_ENV_MEASURE_TABLE):
-        names["measure_table"] = value
-    if value := os.environ.get(_ENV_COLUMN):
-        names["column"] = value
-    if value := os.environ.get(_ENV_MEASURE):
-        names["measure"] = value
-    return names
-
-
 def default_model() -> ModelNames:
     """Return the environment-resolved defaults, falling back to :data:`DEFAULTS`.
 
     A blank environment variable is treated as unset, so ``PBI_MODEL_TABLE=``
     does not turn the table name into an empty string.
     """
-    return replace(DEFAULTS, **_from_env())
+    return ModelNames(
+        table=os.environ.get(_ENV_TABLE) or DEFAULTS.table,
+        measure_table=os.environ.get(_ENV_MEASURE_TABLE) or DEFAULTS.measure_table,
+        column=os.environ.get(_ENV_COLUMN) or DEFAULTS.column,
+        measure=os.environ.get(_ENV_MEASURE) or DEFAULTS.measure,
+    )
 
 
 def resolve_model(

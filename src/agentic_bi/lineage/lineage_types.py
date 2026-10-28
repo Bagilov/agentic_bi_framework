@@ -20,7 +20,7 @@ def _load_brand_config(path: str | Path | None):
 
     pkg_dir = _Path(__file__).resolve().parents[1]
     try:
-        from agentic_bi.brand_config import BrandConfig
+        from agentic_bi.brand.config import BrandConfig
     except ImportError:
         return None
     cfg_path = _Path(path) if path else pkg_dir / "brand_config.yaml"

@@ -143,9 +143,9 @@ def rebuild_pbix(
     # source base layout, to preserve resourcePackages/config
     base_layout, layout_enc = _extract_layout(src)
     if layout is None:
-        names = settings.resolve_model(table=table, column=col, measure=measure)
+        model = settings.resolve_model(table=table, column=col, measure=measure)
         new_layout = _new_layout(
-            display_name, names.table, names.column, names.measure, base_layout
+            display_name, model.table, model.column, model.measure, base_layout
         )
     else:
         new_layout = layout

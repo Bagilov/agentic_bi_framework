@@ -5,6 +5,10 @@ exceeded the file-size budget after formatting, so cohesive parts moved into
 `brand_eval_background`, `brand_audit_math`, `engine_layout_query` and
 `lineage_export_data`. These tests pin the extracted behaviour and the re-exports
 so the split stays invisible to callers.
+
+Stage 4 then gave those families their own subpackages (`engine/`, `brand/`,
+`skeleton/`). The historical flat paths remain as one-release shims that alias to
+the moved module, which the tests at the bottom pin.
 """
 
 from __future__ import annotations
@@ -176,10 +180,81 @@ def test_container_carries_query_and_geometry() -> None:
     assert (pos["x"], pos["y"], pos["width"], pos["height"]) == (10, 20, 30, 40)
 
 
-def test_engine_layout_still_rebinds_visual() -> None:
+def test_engine_layout_via_old_path_is_the_new_module() -> None:
     from agentic_bi import engine_layout
+    from agentic_bi.engine import layout_visual
 
-    assert engine_layout.Visual.__module__ == "agentic_bi.engine_layout_visual"
+    assert engine_layout.Visual.__module__ == "agentic_bi.engine.layout_visual"
+    assert engine_layout.Visual is layout_visual.Visual
+
+
+# --------------------------------------------------------------------------
+# Stage 4: every old flat path is an alias, not a copy
+# --------------------------------------------------------------------------
+
+
+#: Old flat module name -> new canonical dotted path.
+MOVED_MODULES = {
+    "engine_cli": "agentic_bi.engine.cli",
+    "engine_container": "agentic_bi.engine.container",
+    "engine_host": "agentic_bi.engine.host",
+    "engine_layout": "agentic_bi.engine.layout",
+    "engine_layout_query": "agentic_bi.engine.layout_query",
+    "engine_layout_visual": "agentic_bi.engine.layout_visual",
+    "engine_types": "agentic_bi.engine.types",
+    "engine_verify": "agentic_bi.engine.verify",
+    "engine_verify_brand": "agentic_bi.engine.verify_brand",
+    "engine_verify_checks": "agentic_bi.engine.verify_checks",
+    "engine_verify_core": "agentic_bi.engine.verify_core",
+    "brand_audit": "agentic_bi.brand.audit",
+    "brand_audit_eval": "agentic_bi.brand.audit_eval",
+    "brand_audit_extract": "agentic_bi.brand.audit_extract",
+    "brand_audit_math": "agentic_bi.brand.audit_math",
+    "brand_audit_types": "agentic_bi.brand.audit_types",
+    "brand_audit_typography": "agentic_bi.brand.audit_typography",
+    "brand_config": "agentic_bi.brand.config",
+    "brand_eval": "agentic_bi.brand.eval",
+    "brand_eval_background": "agentic_bi.brand.eval_background",
+    "brand_eval_common": "agentic_bi.brand.eval_common",
+    "brand_fonts": "agentic_bi.brand.fonts",
+    "brand_palette": "agentic_bi.brand.palette",
+    "brand_rules": "agentic_bi.brand.rules",
+    "skeleton_assembly": "agentic_bi.skeleton.assembly",
+    "skeleton_container": "agentic_bi.skeleton.container",
+    "skeleton_visuals": "agentic_bi.skeleton.visuals",
+    "skeleton_visuals_extra": "agentic_bi.skeleton.visuals_extra",
+}
+
+
+@pytest.mark.parametrize(("old", "new"), sorted(MOVED_MODULES.items()))
+def test_old_path_aliases_the_new_module(old: str, new: str) -> None:
+    """Importing the old path yields the same module object, not a copy."""
+    import importlib
+
+    old_module = importlib.import_module(f"agentic_bi.{old}")
+    new_module = importlib.import_module(new)
+    assert old_module is new_module
+
+
+@pytest.mark.parametrize("old", sorted(MOVED_MODULES))
+def test_shim_exposes_the_public_api(old: str) -> None:
+    """A shim must not hide the names the old module exported."""
+    import importlib
+
+    module = importlib.import_module(f"agentic_bi.{old}")
+    assert getattr(module, "__all__", None) is not None or any(
+        not name.startswith("_") for name in vars(module)
+    )
+
+
+def test_moved_names_kept_their_home_in_the_new_package() -> None:
+    from agentic_bi.brand import palette
+    from agentic_bi.engine import layout
+    from agentic_bi.skeleton import visuals
+
+    assert palette.ColorSpec.__module__ == "agentic_bi.brand.palette"
+    assert layout.Visual.__module__ == "agentic_bi.engine.layout_visual"
+    assert visuals.card_visual.__module__ == "agentic_bi.skeleton.visuals"
 
 
 # --------------------------------------------------------------------------

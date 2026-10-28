@@ -5,7 +5,7 @@ of the **used fonts and colors** with the corporate style. The result is
 compliance percentages (fonts/colors), a level (`ok`/`warning`/`error`/`unknown`)
 and a list of `color`/`font` findings.
 
-The single source of rules is :class:`agentic_bi.brand_config.BrandConfig`
+The single source of rules is :class:`agentic_bi.brand.config.BrandConfig`
 (palette/ΔRGB tolerance/`allow_extra`/fonts/weights/severity). It is the same
 config as the document audit (`brand_audit.py`), so tolerances and severity are
 set in one place (`brand_config.yaml`).
@@ -38,7 +38,7 @@ _PLACEHOLDER_FONTS = {"+mn-lt", "+mj-lt", "+mn-ea", "+mj-ea", "themefont", ""}
 def _load_config():
     """Lazy import of `BrandConfig` (no hard dependency) + YAML load."""
     pkg_dir = Path(__file__).resolve().parents[1]
-    from agentic_bi.brand_config import BrandConfig  # type: ignore
+    from agentic_bi.brand.config import BrandConfig  # type: ignore
 
     yaml_path = pkg_dir / "brand_config.yaml"
     if yaml_path.exists():

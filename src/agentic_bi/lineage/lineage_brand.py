@@ -9,7 +9,7 @@ This module is a **facade** over:
     lineage_brand_metrics.py - the metric computation
     lineage_brand_report.py  - the human-readable report + CLI
 
-The single source of rules is :class:`agentic_bi.brand_config.BrandConfig`
+The single source of rules is :class:`agentic_bi.brand.config.BrandConfig`
 (palette/ΔRGB tolerance/`allow_extra`/fonts/weights/severity). It is the same
 config as the document audit (`brand_audit.py`), so tolerances and severity are
 set in one place (`brand_config.yaml`).

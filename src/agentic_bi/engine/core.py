@@ -2,9 +2,9 @@
 
 The engine itself (`msmdsrv.exe`) performs the canonical model serialization, so
 the binary VertiPaq `DataModel` is guaranteed valid; the report is built from
-scratch with our own methods (`engine_layout`).
+scratch with our own methods (`engine.layout`).
 
-Host discovery, process plumbing and the oracle transport live in `engine_host`;
+Host discovery, process plumbing and the oracle transport live in `engine.host`;
 this module is the pipeline itself.
 
 Public API:
@@ -16,14 +16,14 @@ Public API:
     EnginePipeline.verify(pbix, spec, pages=None, sample=50, strict=True, model=True) -> dict
 
 `run()` by default (verify=True) performs a reverse self-test: container, layout,
-bindings, filter safety and model data read-back (`engine_verify`). With
+bindings, filter safety and model data read-back (`engine.verify`). With
 `strict_verify` a failed check raises RuntimeError.
 
 Requires Windows + Power BI Desktop RS. Data: CSV / JSON / JSONL.
 
 Environment-specific values (the Desktop RS executable path and the template
 .pbix) are NOT hardcoded: set them via the constructor / CLI flags, or override
-the module defaults in `engine_host`.
+the module defaults in `engine.host`.
 """
 
 from __future__ import annotations
@@ -35,13 +35,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import agentic_bi.engine_container as engine_container
-import agentic_bi.engine_host as engine_host
-import agentic_bi.engine_layout as engine_layout
-import agentic_bi.engine_verify as engine_verify
+import agentic_bi.engine.container as engine_container
+import agentic_bi.engine.host as engine_host
+import agentic_bi.engine.layout as engine_layout
+import agentic_bi.engine.verify as engine_verify
 import agentic_bi.paths as paths
-from agentic_bi.engine_host import DEFAULT_TEMPLATE, PBI_RS, WS_ROOT
-from agentic_bi.engine_types import coerce, typed_column
+from agentic_bi.engine.host import DEFAULT_TEMPLATE, PBI_RS, WS_ROOT
+from agentic_bi.engine.types import coerce, typed_column
 
 logger = logging.getLogger(__name__)
 

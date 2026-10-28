@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentic_bi import engine_container, engine_layout
 from agentic_bi.engine import EnginePipeline
-from agentic_bi.engine_layout import Visual
+from agentic_bi.engine import container as engine_container
+from agentic_bi.engine import layout as engine_layout
+from agentic_bi.engine.layout import Visual
 
 _HERE = Path(__file__).resolve().parent
 CSV = _HERE / "engine_sales.csv"

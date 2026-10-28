@@ -21,14 +21,17 @@ Canonical model build (found 2026-09-26):
   **AS engine** of Power BI Desktop RS (`msmdsrv.exe`) — module
   `engine.EnginePipeline`: data -> model via TOM -> `Server.ImageSave` ->
   container -> oracle.
-- The report is built from scratch (`engine_layout`) — without donor visuals.
+- The report is built from scratch (`engine.layout`) — without donor visuals.
 
-Engine build modules: `engine.py`, `engine_container.py`, `engine_layout.py`,
-`engine_cli.py`, `_engine_build.ps1`, `_engine_oracle.py`.
+Engine build modules: `engine/core.py`, `engine/container.py`, `engine/layout.py`,
+`engine/cli.py`, `_engine_build.ps1`, `_engine_oracle.py`.
 
-Reverse self-testing: `engine_verify.py` (container, layout, bindings,
+Reverse self-testing: `engine/verify.py` (container, layout, bindings,
 filter safety, model data read-back). Wired into `EnginePipeline.run()`
 (verify=True by default) and into the CLI (`--verify`).
+
+Model object names are not hardcoded: they resolve through `agentic_bi.settings`
+(explicit argument > `PBI_MODEL_*` environment > neutral default).
 
 `agentic_bi` is environment-agnostic: all environment-specific values
 (hosts, URLs, shares, paths) are passed via configuration or CLI flags.

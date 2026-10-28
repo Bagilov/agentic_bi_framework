@@ -217,11 +217,11 @@ class TestPackageRelativeWritesAreGone:
     def test_engine_work_dir_is_under_the_temp_root(
         self, monkeypatch, tmp_path
     ) -> None:
-        from agentic_bi import engine
+        from agentic_bi.engine import core
 
-        monkeypatch.setattr(engine.paths.tempfile, "gettempdir", lambda: str(tmp_path))
-        assert engine.EnginePipeline().work_dir == tmp_path / "agentic_bi" / "_work"
-        assert engine.EnginePipeline().work_dir.is_dir()
+        monkeypatch.setattr(core.paths.tempfile, "gettempdir", lambda: str(tmp_path))
+        assert core.EnginePipeline().work_dir == tmp_path / "agentic_bi" / "_work"
+        assert core.EnginePipeline().work_dir.is_dir()
 
     def test_output_dir_is_cwd_relative(self, monkeypatch, tmp_path) -> None:
         from agentic_bi import paths
@@ -245,7 +245,7 @@ class TestBuildDatamodelSpecHandling:
     """The engine spec handoff must not leak temp files or collide across runs."""
 
     def test_spec_file_is_unique_and_removed(self, monkeypatch, tmp_path) -> None:
-        from agentic_bi import engine
+        from agentic_bi.engine import core
 
         seen: list[Path] = []
 
@@ -255,19 +255,19 @@ class TestBuildDatamodelSpecHandling:
             abf.write_bytes(b"abf")
             return "ok"
 
-        monkeypatch.setattr(engine.engine_host, "kill_desktop", lambda: None)
-        monkeypatch.setattr(engine.subprocess, "Popen", lambda *a, **k: None)
-        monkeypatch.setattr(engine.engine_host, "wait_port", lambda *a, **k: 1234)
-        monkeypatch.setattr(engine.engine_host, "run_engine_build", fake_build)
+        monkeypatch.setattr(core.engine_host, "kill_desktop", lambda: None)
+        monkeypatch.setattr(core.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(core.engine_host, "wait_port", lambda *a, **k: 1234)
+        monkeypatch.setattr(core.engine_host, "run_engine_build", fake_build)
 
-        pipeline = engine.EnginePipeline(work_dir=tmp_path / "w")
+        pipeline = core.EnginePipeline(work_dir=tmp_path / "w")
         assert pipeline.build_datamodel({"database": "D", "tables": []}) == b"abf"
 
         assert len(seen) == 1
         assert not seen[0].exists(), "the temp spec must be cleaned up"
 
     def test_two_builds_do_not_share_a_spec_path(self, monkeypatch, tmp_path) -> None:
-        from agentic_bi import engine
+        from agentic_bi.engine import core
 
         seen: list[Path] = []
 
@@ -276,12 +276,12 @@ class TestBuildDatamodelSpecHandling:
             abf.write_bytes(b"abf")
             return "ok"
 
-        monkeypatch.setattr(engine.engine_host, "kill_desktop", lambda: None)
-        monkeypatch.setattr(engine.subprocess, "Popen", lambda *a, **k: None)
-        monkeypatch.setattr(engine.engine_host, "wait_port", lambda *a, **k: 1234)
-        monkeypatch.setattr(engine.engine_host, "run_engine_build", fake_build)
+        monkeypatch.setattr(core.engine_host, "kill_desktop", lambda: None)
+        monkeypatch.setattr(core.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(core.engine_host, "wait_port", lambda *a, **k: 1234)
+        monkeypatch.setattr(core.engine_host, "run_engine_build", fake_build)
 
-        pipeline = engine.EnginePipeline(work_dir=tmp_path / "w")
+        pipeline = core.EnginePipeline(work_dir=tmp_path / "w")
         pipeline.build_datamodel({"database": "D", "tables": []})
         pipeline.build_datamodel({"database": "D", "tables": []})
 

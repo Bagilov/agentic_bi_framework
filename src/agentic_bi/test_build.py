@@ -28,8 +28,11 @@ import sys
 import zipfile
 from pathlib import Path
 
-from agentic_bi import engine_container, engine_layout, engine_verify, visual_check
+from agentic_bi import visual_check
 from agentic_bi.engine import DEFAULT_TEMPLATE, PBI_RS, EnginePipeline
+from agentic_bi.engine import container as engine_container
+from agentic_bi.engine import layout as engine_layout
+from agentic_bi.engine import verify as engine_verify
 
 logger = logging.getLogger(__name__)
 
