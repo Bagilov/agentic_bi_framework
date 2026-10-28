@@ -1,6 +1,6 @@
 # Improvement plan for `agentic_bi_framework`
 
-Status: **Stage 0 implemented**; Stages 1–4 not started. Baseline measured on
+Status: **Stages 0–3 implemented**; Stage 4 not started. Baseline measured on
 `main` @ `032d817` (2026-10-21). Every number below was reproduced locally on that commit; the
 commands are given so any claim can be re-checked.
 
@@ -261,25 +261,61 @@ server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
   no test, not in any doc); removed per the workspace rule that dead code is
   deleted rather than kept "for later". Its removal is why `rebuild.py` reaches
   98 % instead of 79 %.
+- A `parametrize` argument holding a large literal (`b"y" * 100_000`) broke the
+  suite **only on Windows**: pytest writes the test id into `PYTEST_CURRENT_TEST`
+  and Windows caps an environment variable at 32767 characters, so the teardown
+  raised `ValueError`. Linux and macOS passed. Fixed by sizing the payload inside
+  the test body, plus a structural test that rejects any `parametrize` literal (or
+  constant `str/bytes * int` fold) past 8000 characters.
 
 ### Stage 3 — Public contract and packaging (2–3 days)
 
 - Ship `src/agentic_bi/py.typed`; add `__all__` where a module is a facade, and
-  resolve the 23 `F401`: verified that `brand.py`/`skeleton.py`/`engine_verify.py`
-  keep passing `ruff --select F401` with the `noqa` removed (they already have
-  `__all__`), while `pbi_lineage.py`, `reportserver/diagnostics.py`,
-  `pbix_binary/abf_codec.py`, `antipatterns/pbi_antipatterns.py` still need
-  either `__all__` or the directive. Run `ruff check --select RUF100 --fix` to
-  delete the 34 unused `BLE001` directives.
+  resolve the 23 `F401`. **Implemented**: `py.typed` ships; the 19 unused
+  `noqa: F401` directives are gone (the facades pass `ruff --select F401` with the
+  directive stripped because they already carry `__all__`); 4 remain and each is
+  verified load-bearing — `pbi_lineage.py`, `reportserver/diagnostics.py`,
+  `antipatterns/pbi_antipatterns.py` re-export public names, and
+  `pbix_binary/abf_codec.py` probes `import xpress9`. The RUF100 cleanup removed
+  29 unused directives (the plan estimated 34).
 - Configure a type checker in report-only mode first (`mypy` or `pyright`),
-  non-blocking, then flip to blocking once the count is at zero.
-- Exclude debug modules from the wheel: `board_fake`, `_engine_oracle`,
-  `desktop_oracle_guest`, `test_build`, `_engine_build.ps1` — they currently
-  ship (confirmed in the built wheel). Keep `test_build` as a `scripts/` entry
-  (it already has a thin wrapper there) instead of a console script, or replace
-  it with a real `agentic-bi doctor` subcommand as `[Q]` suggests.
+  non-blocking, then flip to blocking once the count is at zero. **Implemented**:
+  `[tool.mypy]` in `pyproject.toml` (`python_version = "3.10"`,
+  `ignore_missing_imports = true`), a `types` job in CI, and a bounded
+  `mypy>=1.8,<2.5` in the `dev` extra. Measured baseline: **164 errors in 25
+  files**, dominated by `attr-defined` (109) on the lineage and guest mixins —
+  mypy cannot see the attributes a sibling mixin defines because
+  `PbiLineage`/`WinRMTransport` compose them without a shared Protocol. That is a
+  real annotation gap, fixed by a Protocol in a later change.
+
+  Report-only is enforced by a **baseline ratchet**, not by
+  `continue-on-error`: the step runs `mypy`, parses `Found N errors`, and fails
+  when N exceeds the declared `MYPY_BASELINE`. A blanket
+  `continue-on-error: true` was rejected during review because it made the leg
+  unfalsifiable — a wrong `files` path, a missing config, or a growing count all
+  rendered the same green. The ratchet fails on growth and on an
+  infrastructure-style run that produces no result, while still tolerating the
+  non-zero baseline. The pin keeps the baseline reproducible: the declared floor
+  `mypy==1.8.0` reports 168/27, so an unbounded requirement would silently
+  re-baseline the documented number.
+- Exclude debug modules from the wheel: **measurement contradicts the original
+  list.** Only `board_fake` is genuinely unreachable from a shipped entry point.
+  The other four are runtime code and removing them breaks a documented workflow:
+  `_engine_build.ps1` and `_engine_oracle.py` are spawned by
+  `engine_host.run_engine_build`/`run_oracle` (reachable from `agentic-bi-engine`),
+  `desktop_oracle_guest` is imported by `guest_chain` (reachable from
+  `agentic-bi-guest-dashboard`), and `test_build` **is** the shipped
+  `agentic-bi-test-build` console script documented in
+  `DEVELOPMENT_MACOS.md`/`IMPLEMENTATION.md`. A reachability probe over the
+  `[project.scripts]` roots reports 22 unreachable modules (library code with no
+  CLI, not debug leftovers), so "the wheel contains no unreachable module" is not
+  the right criterion for a library. The asserted contract instead pins what must
+  ship (`py.typed`, `_engine_build.ps1`) and that the wheel carries no test,
+  `__pycache__` or `.egg-info` entries.
 - Add `noqa`-free `BLE` to the ruff `select` list so new blind excepts cannot
-  be added silently.
+  be added silently. **Implemented**: `select` now ends in `["...", "BLE",
+  "RUF100"]`, and the gate was checked negatively (a bare `except Exception`
+  raises `BLE001`, a stale `# noqa` raises `RUF100`).
 - CLI error contract (round 4, **implemented**): `cli_support.run_boundary` maps a
   bad input to exit `2` with a one-line message and lets an unexpected error stay a
   traceback. Wired into all of `visual-check`, `brand-audit`, `engine`, `test-build`,
@@ -290,11 +326,37 @@ server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
   parameter is gone from `render_kilo_agent`.
 - Default outputs are CWD-relative now (round 4, **implemented**) —
   `output_files/` beside the caller, not inside `site-packages`.
-- Done when: the wheel contains no debug/script modules, `py.typed` is present,
-  `RUF100` is clean, the type checker runs in CI in report-only mode, every CLI
-  returns a documented code for a bad input, and `from_manifest` rejects an
-  unknown stage.
+- Done when: `py.typed` ships and is declared as package data, `RUF100` is clean,
+  the type checker runs in CI in report-only mode, every CLI returns a documented
+  code for a bad input, and `from_manifest` rejects an unknown stage.
 - Effort: 3–4 days.
+
+**Status: done and green on `main`.** Measured outcome:
+
+- `py.typed` shipped, declared in `[tool.setuptools.package-data]`, and
+  **tracked** — an untracked marker would pass locally while CI's checkout and
+  any clean-clone wheel omitted it, so the packaging-contract test asserts git
+  membership, not just file existence.
+- `RUF100` clean and `BLE` added to `ruff select` — 29 unused directives removed;
+  the 4 remaining `noqa: F401` (public re-exports and the `xpress9` availability
+  probe) are each verified necessary by re-running `--select F401` with the
+  directive stripped.
+- mypy in CI with a **baseline ratchet** (`types` job, `MYPY_BASELINE=164`,
+  bounded `mypy>=1.8,<2.5`), plus `mypy` config in `pyproject.toml`; measured
+  baseline 164 errors, triaged as the mixin `attr-defined` class plus
+  optional-dependency typing. The ratchet was mutation-tested: growing the count,
+  producing no result, dropping the baseline, and re-adding
+  `continue-on-error` each fail the contract test.
+- The `origins` parameter of `PbiLineage` was narrowed from
+  `list | dict | str | Path | None` to `dict | str | Path | None`, matching
+  `load_origins`. Shipping `py.typed` otherwise made a consumer's checker trust a
+  signature that was silently ignored at runtime; the narrowing removed one
+  `arg-type` error and makes the misuse a type error.
+- The wheel-exclusion bullet was re-measured and corrected: only `board_fake` is
+  unreachable; the other four entries are runtime dependencies of shipped CLIs.
+
+  The packaging contract tests now pin `py.typed`, `_engine_build.ps1` and the
+  absence of test/cache entries instead of a wrong exclusion list.
 
 ### Stage 4 — De-hardcode the donor and split the namespace (1–2 weeks)
 
