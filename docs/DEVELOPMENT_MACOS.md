@@ -110,7 +110,7 @@ Inside the guest (or via WinRM), let the AS engine produce the model and
 assemble the `.pbix`:
 
 ```powershell
-python -m agentic_bi.engine_cli --data engine_sales.csv --table Sales --out out.pbix --verify
+python -m agentic_bi.engine.cli --data engine_sales.csv --table Sales --out out.pbix --verify
 # or the self-test wrapper:
 python -m agentic_bi.test_build --data engine_sales.csv --table Sales \
     --template templates\template.pbix --out out.pbix

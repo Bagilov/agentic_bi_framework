@@ -24,18 +24,18 @@ brand_config.yaml   <-  audit config (rules, tolerances, severity)
 brand.py            <-  machine-readable brand-book base (palette/fonts/rules)
         │
         ▼
-brand_config.py     <-  merge config + base -> BrandConfig (effective)
+brand/config.py     <-  merge config + base -> BrandConfig (effective)
         │
         ▼
-brand_audit.py      <-  extract observations from the document + evaluate -> AuditReport
+brand/audit.py      <-  extract observations from the document + evaluate -> AuditReport
 ```
 
 | Layer | File | Role |
 |-------|------|------|
 | Base | `brand.py` | brand-book defaults (source of truth) |
 | Config | `brand_config.yaml` | project overrides: tolerances, severity, what to check |
-| Loader | `brand_config.py` | `BrandConfig.load()` / `.default()`, `match()`, `severity_of()` |
-| Engine | `brand_audit.py` | `audit_pptx()` / `audit_document()`, `ThemeResolver`, CLI |
+| Loader | `brand/config.py` | `BrandConfig.load()` / `.default()`, `match()`, `severity_of()` |
+| Engine | `brand/audit.py` | `audit_pptx()` / `audit_document()`, `ThemeResolver`, CLI |
 
 **Principle:** the config contains **only differences** from `brand.py`. Anything
 not set in the config falls back to the style-guide value. This avoids duplication
@@ -91,7 +91,7 @@ default not checked for fill/line (inherited from the theme).
 ### 3.2 Settings cascade
 
 ```
-brand.py (true source)  ->  brand_config.yaml (project)  ->  BrandConfig(incode) ->  CLI --config
+brand/palette.py + brand/fonts.py (true source)  ->  brand_config.yaml (project)  ->  BrandConfig(incode) ->  CLI --config
 ```
 The further right, the higher the priority. For a one-off check `--config` is
 enough; for a series of similar documents, commit the config to the project repo.
@@ -111,7 +111,7 @@ enough; for a series of similar documents, commit the config to the project repo
 
 ```bash
 cd agentic_bi_framework
-python -m agentic_bi.brand_audit "Presentation.pptx" \
+python -m agentic_bi.brand.audit "Presentation.pptx" \
     --config src/agentic_bi/brand_config.yaml \
     --json "output_files/audit.json" \
     --fail-on error
@@ -133,8 +133,8 @@ Edit the document by location and re-run until `OK`. For CI, use
 ## 5. Usage example ("created a presentation" scenario)
 
 ```python
-from agentic_bi.brand_config import BrandConfig
-from agentic_bi.brand_audit import audit_pptx
+from agentic_bi.brand.config import BrandConfig
+from agentic_bi.brand.audit import audit_pptx
 
 cfg = BrandConfig.load("src/agentic_bi/brand_config.yaml")
 rep = audit_pptx("Presentation.pptx", cfg)
@@ -204,8 +204,8 @@ Audit: Presentation.pptx
 
 - `agentic_bi/brand.py` — the brand base (palette/fonts/rules)
 - `agentic_bi/brand_config.yaml` — the audit config
-- `agentic_bi/brand_config.py` — config loading and merging
-- `agentic_bi/brand_audit.py` — the audit engine + CLI
+- `agentic_bi/brand/config.py` — config loading and merging
+- `agentic_bi/brand/audit.py` — the audit engine + CLI
 - `tests/test_brand_audit.py` — tests
 - the brand style guide (visual identity guide) — the primary source
 - the corporate font library (Brand Sans/Text)

@@ -1,7 +1,7 @@
 # Improvement plan for `agentic_bi_framework`
 
-Status: **Stages 0–3 implemented**; Stage 4 not started. Baseline measured on
-`main` @ `032d817` (2026-10-21). Every number below was reproduced locally on that commit; the
+Status: **Stages 0–4 implemented**. Baseline measured on `main` @ `032d817`
+(2026-10-21); every number below was reproduced locally on that commit and the
 commands are given so any claim can be re-checked.
 
 Independent review: a second opinion from Qwen (chat.qwen.ai) was taken through
@@ -374,6 +374,31 @@ server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
   `settings.py` defaults and test fixtures; the pre-existing
   `tests/test_refactor_parity.py` pattern extends to the new splits.
 - Effort: 1–2 weeks.
+
+**Status: implemented.** The two halves landed as separate commits.
+
+*De-hardcoding.* `agentic_bi/settings.py` holds a frozen `ModelNames` dataclass
+with neutral defaults (`Data`/`Value`); resolution order is explicit argument >
+environment (`PBI_MODEL_TABLE`, `PBI_MODEL_MEASURE_TABLE`, `PBI_MODEL_COLUMN`,
+`PBI_MODEL_MEASURE`) > default, stdlib-only. `Board`, `rebuild_pbix`,
+`spec.from_dict`, `automate.run` and `board_fake` all take `None` and resolve
+through it, so no signature carries a donor default. The built-in origins sample
+and `EXAMPLE_REGISTRY` are neutral; `examples/donor_registry.json` shows the
+registry shape. `tests/test_settings.py` pins the resolution order *and* asserts
+no donor object name (`fact_table`, `kpi_measures`, `dim_registry`) survives in
+`src/` outside `settings.py` — the plan's done-criterion, as a test.
+
+*Namespace split.* The engine, brand and skeleton families moved into
+`engine/`, `brand/`, `skeleton/` (28 modules). Each historical flat path is kept
+by a one-release shim that rebinds `sys.modules[__name__]` to the moved module,
+so the old path *is* the new module — `from agentic_bi.engine_layout import X`
+(including private names) and `python -m agentic_bi.engine_cli` both keep
+working, which the shim-integrity tests in `test_refactor_parity.py` pin. The
+console-script entry points, `[tool.setuptools.package-data]` lookups in
+`engine_host` (now resolved from the package dir, not the subpackage) and the
+user-facing docs point at the new paths; a wheel built from the tree installs
+into a clean venv and its `agentic-bi-engine`, `agentic-bi-brand-audit` and
+`agentic-bi-test-build` scripts run.
 
 ---
 

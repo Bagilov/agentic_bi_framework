@@ -55,31 +55,37 @@ data (CSV/JSON) -> model via TOM -> Server.ImageSave (canonical DataModel)
 
 | File | Purpose |
 |------|---------|
-| `skeleton.py` | Generate a PBIP skeleton and layout: KPI/chart/table/filters, query structure |
+| `settings.py` | Model object names (`ModelNames`) as overridable defaults: argument > env (`PBI_MODEL_*`) > neutral default |
+| `skeleton/` | Generate a PBIP skeleton and layout: KPI/chart/table/filters, query structure (`agentic_bi.skeleton`) |
 | `rebuild.py` | `rebuild_pbix(src, out, ..., layout=...)` — fold a layout into a binary `.pbix` |
-| `engine.py` | `EnginePipeline` — build a `.pbix` from arbitrary data via the Desktop AS engine |
-| `engine_host.py` | Host/process plumbing: `PBI_RS`, `WS_ROOT`, `DEFAULT_TEMPLATE`, `wait_port`, `run_engine_build`, `run_oracle` |
-| `engine_container.py` | OPC operations on a `.pbix`: `swap_datamodel`, `build_container`, `read_member` |
-| `engine_layout.py` | Build `Report/Layout` from scratch: `Visual`, `build_report`, `build_layout_from_spec` |
-| `engine_verify.py` | **Reverse self-test of a `.pbix`**: container, layout/pages, bindings, IN-filter guard, model read-back, **theme vs style guide** (`verify_brand`, `extract_report_theme`) |
-| `engine_cli.py` | Engine-build CLI (`--data/--table/--out/--oracle/--verify`) |
+| `engine/` | `EnginePipeline` — build a `.pbix` from arbitrary data via the Desktop AS engine (`agentic_bi.engine`) |
+| `engine/host.py` | Host/process plumbing: `PBI_RS`, `WS_ROOT`, `DEFAULT_TEMPLATE`, `wait_port`, `run_engine_build`, `run_oracle` |
+| `engine/container.py` | OPC operations on a `.pbix`: `swap_datamodel`, `build_container`, `read_member` |
+| `engine/layout.py` | Build `Report/Layout` from scratch: `Visual`, `build_report`, `build_layout_from_spec` |
+| `engine/verify.py` | **Reverse self-test of a `.pbix`**: container, layout/pages, bindings, IN-filter guard, model read-back, **theme vs style guide** (`verify_brand`, `extract_report_theme`) |
+| `engine/cli.py` | Engine-build CLI (`--data/--table/--out/--oracle/--verify`) |
 | `_engine_build.ps1` / `_engine_oracle.py` | TOM+`ImageSave` and the strict Desktop oracle (internal) |
 | `pbix_binary/` | **Binary DataModel (ABF) member editing**: member-level patching of a `.pbix`, equal- and **uneven-length** (re-layout with recomputed offsets). See [§16](#16-binary-datamodel-editing-pbix_binary) |
 | `validate_pbix.py` | `validate_pbix(path)` — validate a produced `.pbix` layout against the donor model registry |
 | `publish.py` | `publish_pbix(pbix, name, folder, cfg)` — publish directly via REST /api/v2.0 |
 | `automate.py` | Orchestration: `run()`, `run_from_skeleton()`, `verify_published()`; CLI `--skeleton` |
-| `board_fake.py` | A ready example: a board over real donor-model objects (KPI+chart+table+filters) |
+| `board_fake.py` | A ready example: a board over configured model objects (KPI+chart+table+filters) |
 | `board.py` | Declarative multi-page board builder (`Board`/`PageView`, auto-layout) |
 | `spec.py` | Declarative spec (YAML/JSON): dashboard/quality/deploy/control/support → `Board` |
 | `thresholds.py` | A single catalog of quality/deploy/build thresholds (value/unit/domain/why/source) |
-| `brand.py` | Machine-readable brand style spec (palette/fonts/background/elements) for automated checks: `check_brand_compliance`, `rules_by_category`, `font_files` |
-| `brand_config.py` / `brand_config.yaml` | Document-audit config: palette, fonts, backgrounds, severity, tolerances (`BrandConfig.load`) |
-| `brand_audit.py` | Audit `.pptx` for brand compliance: `audit_pptx`, `audit_document`, CLI `python -m agentic_bi.brand_audit` (locations, JSON, `--fail-on`) |
+| `brand/` | Machine-readable brand style spec + `.pptx` audit (`agentic_bi.brand`): `check_brand_compliance`, `rules_by_category`, `audit_pptx` |
+| `brand/config.py` / `brand_config.yaml` | Document-audit config: palette, fonts, backgrounds, severity, tolerances (`BrandConfig.load`) |
+| `brand/audit.py` | Audit `.pptx` for brand compliance: `audit_pptx`, `audit_document`, CLI `python -m agentic_bi.brand.audit` (locations, JSON, `--fail-on`) |
 | `agents.py` | Agent support: `SupportAgent` manifests by lifecycle stage, `resolve_agents`, `render_kilo_agent` |
 | `inspect_board.py` | Inspect an existing Report Server dashboard: find by path → download `.pbix` → break down elements via PbiLineage |
 | `dax_detail.py` | Deep DAX/M analysis of a `.pbix`: all measures with expressions, calc columns, M code, distortion-risk indices + antipattern summary |
 | `docs/FRAMEWORK.md` | **Framework overview**: methods/techniques/concepts across the 5 aspects |
 | `tests/` | Binary DataModel (`pbix_binary`) and web-clone (`web_report`) tests |
+
+The engine/brand/skeleton families live in subpackages. Their pre-Stage-4 flat
+paths (`agentic_bi.engine_layout`, `agentic_bi.brand_eval`,
+`agentic_bi.skeleton_visuals`, ...) still resolve through one-release shims that
+alias to the moved module.
 
 ## 4. Quick start
 
@@ -92,7 +98,7 @@ A separate path: the model is built from data by the Desktop AS engine itself
 cd agentic_bi_framework
 
 # CSV -> .pbix (with a Desktop open check)
-python -m agentic_bi.engine_cli \
+python -m agentic_bi.engine.cli \
     --data examples/engine_sales.csv --table Sales --database SalesDB \
     --out output_files/sales.pbix --oracle
 
@@ -366,12 +372,12 @@ CLI:
 
 ```bash
 # build + reverse test + page structure check
-python -m agentic_bi.engine_cli --data sales.csv --table Sales --out out.pbix \
+python -m agentic_bi.engine.cli --data sales.csv --table Sales --out out.pbix \
     --assert-pages "Sales=5" --oracle
 
 # disable the test / make the model read-back critical
-python -m agentic_bi.engine_cli ... --no-verify
-python -m agentic_bi.engine_cli ... --strict-soft
+python -m agentic_bi.engine.cli ... --no-verify
+python -m agentic_bi.engine.cli ... --strict-soft
 ```
 
 **What is checked** (`engine_verify.verify_pbix`):
@@ -399,7 +405,7 @@ In the final stage the report theme is checked against the corporate style
 (spec in `brand.py`):
 
 ```python
-import agentic_bi.engine_verify as engine_verify
+from agentic_bi.engine import verify as engine_verify
 
 theme = engine_verify.extract_report_theme("out.pbix")  # fonts/colors/background
 engine_verify.verify_brand("out.pbix", theme=theme, strict=False)

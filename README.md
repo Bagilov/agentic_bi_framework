@@ -37,14 +37,14 @@ agentic_bi_framework/
 ├── pyproject.toml             # packaging & optional dependency groups
 └── src/agentic_bi/            # the implementation (depth)
     ├── board.py               # declarative Board/Page builder
-    ├── skeleton.py            # PBIP skeleton + layout generation
+    ├── settings.py            # model object names (overridable defaults)
+    ├── skeleton/              # PBIP skeleton + layout generation
     ├── rebuild.py             # fold layout into a donor .pbix
-    ├── engine*.py             # build a .pbix from arbitrary data via the AS engine
+    ├── engine/                # build a .pbix from arbitrary data via the AS engine
     ├── guest*.py              # bounded Windows-guest chain (WinRM build + Desktop oracle)
     ├── validate_pbix.py       # validate layout against the donor model
-    ├── engine_verify.py       # reverse self-test of a built .pbix
     ├── spec.py / thresholds.py / agents.py
-    ├── brand*.py              # corporate brand rules & auditing
+    ├── brand/                 # corporate brand rules & auditing
     ├── publish.py / automate.py
     ├── pbix_binary/           # member-level binary DataModel editing (incl. uneven length)
     ├── web_report/            # HTML clone of a dashboard as an interactive layout + per-element checks
@@ -75,8 +75,8 @@ from agentic_bi import spec, board
 
 | Stage | Modules | What it does |
 |-------|---------|--------------|
-| develop | `board`, `skeleton`, `spec`, `build`, `engine_layout`, `rebuild`, `engine` | spec/query → layout → `.pbix` |
-| test | `validate_pbix`, `engine_verify`, `dax_detail`, `antipatterns` | validate against model, reverse self-test, DAX/M analysis |
+| develop | `board`, `skeleton`, `spec`, `build`, `engine.layout`, `rebuild`, `engine` | spec/query → layout → `.pbix` |
+| test | `validate_pbix`, `engine.verify`, `dax_detail`, `antipatterns` | validate against model, reverse self-test, DAX/M analysis |
 | deploy | `publish`, `automate` | REST publish + orchestration |
 | control | `automate.verify_published`, `reportserver/diagnostics` | confirm published state, catalog diagnostics |
 | support | `thresholds`, `agents` | explain thresholds, triage, agent manifests |

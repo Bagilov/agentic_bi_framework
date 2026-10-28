@@ -27,7 +27,7 @@ enrich it. Do not jump to the rich board unless enrichment is requested.
   scheduled task with `-LogonType Interactive`.
 - A data-bound visual renders only when its container carries the
   container-level `query` (`SemanticQueryDataShapeCommand`) **and**
-  `dataTransforms`, and the section carries an `id`. `engine_layout` emits all
+  `dataTransforms`, and the section carries an `id`. `engine.layout` emits all
   of these now; a layout without them shows an empty report with the table
   present only in the data model.
 - Desktop, template and workspace are env-driven and auto-detected:
@@ -161,7 +161,8 @@ Invoke-WebRequest -UseBasicParsing `
 from pathlib import Path
 
 from agentic_bi.engine import EnginePipeline
-from agentic_bi import engine_verify, visual_check
+from agentic_bi import visual_check
+from agentic_bi.engine import verify as engine_verify
 
 spec = EnginePipeline.build_spec(
     EnginePipeline.load_rows(Path("examples/engine_sales.csv")), "Sales", "SalesTable"
