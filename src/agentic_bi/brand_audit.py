@@ -42,20 +42,20 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from agentic_bi.brand_audit_eval import (  # noqa: F401
+from agentic_bi.brand_audit_eval import (
     evaluate_observations,
     limit_findings,
 )
-from agentic_bi.brand_audit_extract import (  # noqa: F401
+from agentic_bi.brand_audit_extract import (
     ThemeResolver,
     iter_pptx_observations,
 )
-from agentic_bi.brand_audit_types import (  # noqa: F401
+from agentic_bi.brand_audit_types import (
     AuditFinding,
     AuditReport,
 )
 from agentic_bi.brand_config import BrandConfig
-from agentic_bi.brand_eval import is_brand_font  # noqa: F401 (public re-export)
+from agentic_bi.brand_eval import is_brand_font
 
 logger = logging.getLogger(__name__)
 

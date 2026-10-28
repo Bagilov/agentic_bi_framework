@@ -87,7 +87,7 @@ def parse_abf_index(abf: bytes) -> ABFIndex:
     """Parse the header, virtual directory and backup log of an ABF buffer."""
     try:
         header = parse_header(abf)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a domain error
+    except Exception as exc:
         raise ABFLayoutError(f"cannot parse ABF header: {exc}") from exc
     vdir_end = header.vdir_offset + header.vdir_size
     if header.vdir_offset <= 0 or vdir_end > len(abf):
@@ -105,7 +105,7 @@ def parse_abf_index(abf: bytes) -> ABFIndex:
         )
     try:
         log = parse_backup_log(abf[anchor.offset : anchor.offset + anchor.size])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ABFLayoutError(f"cannot parse backup log: {exc}") from exc
     return ABFIndex(header=header, log=log, files=files)
 

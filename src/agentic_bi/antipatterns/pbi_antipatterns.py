@@ -35,7 +35,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from agentic_bi.antipatterns.antipattern_detectors import (  # noqa: F401
+from agentic_bi.antipatterns.antipattern_detectors import (
     analyze_board,
     analyze_calc_column,
     analyze_measure,

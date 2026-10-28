@@ -129,7 +129,10 @@ src = ["src", "tests"]
 extend-exclude = ["other/qwen-review"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B"]
+# `BLE` makes a blind `except Exception` an explicit, reviewed decision (every
+# intentional one carries a `noqa: BLE001` with a reason). `RUF100` keeps those
+# directives honest, so one cannot survive after the code it suppressed changed.
+select = ["E", "F", "W", "I", "UP", "B", "BLE", "RUF100"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]

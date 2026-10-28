@@ -153,7 +153,7 @@ class TestInspectBoardRobustness:
             base = "/reportserver"
             api = "/api/v2.0"
 
-            class net:  # noqa: N801 - stand-in for the session
+            class net:  # stand-in for the session
                 @staticmethod
                 def request(*_a, **_k):
                     raise AssertionError("must not reach the network")
@@ -173,7 +173,7 @@ class TestInspectBoardRobustness:
             base = "/reportserver"
             api = "/api/v2.0"
 
-            class net:  # noqa: N801
+            class net:  # stand-in for the session
                 @staticmethod
                 def request(*_a, **_k):
                     return _Resp()

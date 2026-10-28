@@ -59,10 +59,10 @@ class _SingleFileHandler(http.server.BaseHTTPRequestHandler):
         self._url_path = f"/{token}/{file_path.name}"
         super().__init__(*args, **kwargs)
 
-    def log_message(self, *args, **kwargs) -> None:  # noqa: D102
+    def log_message(self, *args, **kwargs) -> None:
         return
 
-    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_GET(self) -> None:  # BaseHTTPRequestHandler API name
         """Return the staged file only for the exact tokenized path."""
         if self.path.split("?", 1)[0] != self._url_path:
             self.send_error(404, "Not Found")
@@ -196,5 +196,5 @@ class StagingMixin:
         for server in list(self._servers):
             try:
                 self._stop_server(server)
-            except Exception:  # noqa: BLE001 - teardown must not mask the verdict
+            except Exception:
                 logger.debug("server already stopped", exc_info=True)

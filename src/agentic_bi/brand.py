@@ -17,7 +17,7 @@ corporate style.
 
 from __future__ import annotations
 
-from agentic_bi.brand_eval import (  # noqa: F401
+from agentic_bi.brand_eval import (
     background_findings,
     check_brand_compliance,
     color_catalog,
@@ -28,7 +28,7 @@ from agentic_bi.brand_eval import (  # noqa: F401
     is_brand_font,
     is_fallback,
 )
-from agentic_bi.brand_fonts import (  # noqa: F401
+from agentic_bi.brand_fonts import (
     BRAND_ITALIC,
     BRAND_WEIGHTS,
     EMBEDDED_BRAND_FONTS,
@@ -39,12 +39,12 @@ from agentic_bi.brand_fonts import (  # noqa: F401
     font_catalog,
     font_files,
 )
-from agentic_bi.brand_palette import (  # noqa: F401
+from agentic_bi.brand_palette import (
     PALETTE_ADDITIONAL,
     PALETTE_PRIMARY,
     ColorSpec,
 )
-from agentic_bi.brand_rules import (  # noqa: F401
+from agentic_bi.brand_rules import (
     ALLOWED_WEIGHTS,
     BASE_ELEMENTS,
     BASE_ELEMENTS_MIN,

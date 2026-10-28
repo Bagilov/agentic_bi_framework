@@ -62,7 +62,7 @@ def _assert_only_domain_errors(parse, samples: list[bytes], label: str) -> int:
             accepted += 1
         except DOMAIN_ERRORS:
             continue
-        except Exception as exc:  # noqa: BLE001 - this is the assertion's subject
+        except Exception as exc:
             raise AssertionError(
                 f"{label}: sample {i} raised {type(exc).__name__}: {exc!r}"
             ) from exc
@@ -97,7 +97,7 @@ def test_truncation_at_every_prefix_is_a_domain_error() -> None:
             parse_virtual_directory(raw[:end])
         except DOMAIN_ERRORS:
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise AssertionError(
                 f"prefix len={end} raised {type(exc).__name__}"
             ) from exc

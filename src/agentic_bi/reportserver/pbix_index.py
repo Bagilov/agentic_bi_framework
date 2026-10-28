@@ -81,7 +81,7 @@ class IndexMixin:
             import pandas as pd
             import pyarrow as pa
             import pyarrow.parquet as pq
-        except ImportError as e:  # noqa: BLE001
+        except ImportError as e:
             logger.error("pyarrow is not installed - parquet unavailable (%s)", e)
             raise
 
@@ -266,6 +266,6 @@ class IndexMixin:
             for jf in sub.glob("*.json"):
                 try:
                     results.append(json.loads(jf.read_text(encoding="utf-8")))
-                except json.JSONDecodeError as e:  # noqa: BLE001
+                except json.JSONDecodeError as e:
                     logger.warning("skip %s: %s", jf, e)
         return results

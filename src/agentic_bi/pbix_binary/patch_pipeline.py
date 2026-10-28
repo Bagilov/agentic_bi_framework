@@ -206,7 +206,7 @@ def _verify_output(out: Path) -> None:
         abf_relayout.parse_abf_index(abf)
     except PatchError:
         raise
-    except Exception as exc:  # noqa: BLE001 - any failure means an invalid output
+    except Exception as exc:
         raise PatchError(f"written .pbix failed self-verification: {exc}") from exc
 
 

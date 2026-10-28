@@ -122,7 +122,7 @@ class WinRMChannel:
         for attempt in range(1, attempts + 1):
             try:
                 return run_ps(self.session(), script)
-            except errors as exc:  # noqa: BLE001 - retry transient transport faults
+            except errors as exc:
                 last = exc
                 logger.debug("ps attempt %d/%d failed: %s", attempt, attempts, exc)
                 self._session = None

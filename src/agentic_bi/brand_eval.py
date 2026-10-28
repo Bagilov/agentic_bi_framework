@@ -19,7 +19,7 @@ Public API:
 
 from __future__ import annotations
 
-from agentic_bi.brand_eval_background import (  # noqa: F401  (public re-export)
+from agentic_bi.brand_eval_background import (
     background_findings,
     contrast_ratio,
 )

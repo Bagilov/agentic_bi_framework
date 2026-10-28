@@ -139,7 +139,7 @@ class NegotiateSession:
         for _ in range(4):
             try:
                 out = ctx.step(in_token)
-            except Exception:  # context already finished/broken - restart
+            except Exception:  # noqa: BLE001 - context already finished/broken
                 ctx = self._new_ctx()
                 _in = None
                 out = ctx.step(_in)
@@ -156,7 +156,7 @@ class NegotiateSession:
             if resp.status_code == 401 and challenge.lower().startswith("negotiate"):
                 try:
                     in_token = base64.b64decode(challenge.split(" ", 1)[1])
-                except Exception:
+                except Exception:  # noqa: BLE001 - a malformed token is not fatal
                     return resp
             else:
                 return resp

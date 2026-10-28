@@ -15,21 +15,21 @@ Scenario: KPI card (measure), chart (line/column: X axis + value), table
 
 from __future__ import annotations
 
-from agentic_bi.skeleton_assembly import (  # noqa: F401
+from agentic_bi.skeleton_assembly import (
     build_model,
     build_report,
     build_skeleton,
     layout_from_report,
     main,
 )
-from agentic_bi.skeleton_visuals import (  # noqa: F401
+from agentic_bi.skeleton_visuals import (
     COL_AGG_FUNCTION,
     card_visual,
     chart_visual,
     page_filter,
     table_visual,
 )
-from agentic_bi.skeleton_visuals_extra import (  # noqa: F401
+from agentic_bi.skeleton_visuals_extra import (
     kpi_band,
     scatter_visual,
     stacked_visual,

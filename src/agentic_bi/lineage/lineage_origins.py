@@ -34,7 +34,7 @@ try:  # PyYAML is optional: the source map has a built-in default
 except ImportError:  # pragma: no cover - without PyYAML we use the default
     yaml = None
 
-from agentic_bi.lineage.lineage_origins_data import (  # noqa: F401
+from agentic_bi.lineage.lineage_origins_data import (
     DEFAULT_ORIGINS,
     ORIGIN_COLORS,
     ORIGIN_LABEL,
