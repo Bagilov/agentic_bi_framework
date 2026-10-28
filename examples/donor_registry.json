@@ -1,0 +1,10 @@
+{
+  "Data": {
+    "columns": ["segment", "period_start", "target", "score", "cnt"],
+    "measures": ["TotalTarget", "AvgScore", "Count"]
+  },
+  "Measures": {
+    "columns": [],
+    "measures": ["Value"]
+  }
+}

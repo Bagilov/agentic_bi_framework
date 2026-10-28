@@ -59,7 +59,7 @@ class PbiLineage(ModelMixin, SourceMixin, QueryMixin, ExportMixin, PlantUmlMixin
     Args:
         pbix_path: path to the .pbix file.
         display_aliases: map of displayed table names -> physical ones
-            (e.g. {"Sales Registry": "dim_registry"}).
+            (e.g. {"Sales Registry": "dim_sample"}).
             Used when visuals reference tables by display name.
         origins: source-origin map as a `{"origins": [...]}` dict or a path to a
             YAML/JSON file; `None` uses the built-in neutral default.

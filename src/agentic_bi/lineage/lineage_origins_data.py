@@ -77,15 +77,19 @@ class Origin:
 # --------------------------------------------------------------------------- #
 #  Neutral built-in origin map (sample - replace with your own)
 # --------------------------------------------------------------------------- #
-# Keys are model source-table names (as in the model table).
+# Keys are model source-table names (as in the model table). The sample uses
+# placeholder names that match no real donor: a pipeline-loaded fact table, a
+# hand-maintained Excel share, a personal-drive reference file, and an inline
+# M-code table. Supply your own via `agentic_bi.settings`-independent
+# `origins.yaml` / a dict to `load_origins`, without changing code.
 # stages: the chain "SOURCE -> PROCESSING -> LOAD" (source/process/load).
 DEFAULT_ORIGINS: list[dict] = [
     {
         "key": "warehouse_pipeline",
         "category": "origin-pipeline",
         "label": "warehouse-pipeline",
-        "detail": ("industrial pipeline that builds the fact/mart source table"),
-        "tables": ["dim_registry"],
+        "detail": "industrial pipeline that builds the fact/mart source table",
+        "tables": ["dim_sample"],
         "stages": [
             {
                 "stage": "source",
@@ -99,7 +103,7 @@ DEFAULT_ORIGINS: list[dict] = [
             },
             {
                 "stage": "load",
-                "label": "sink:warehouse -> fact_table",
+                "label": "sink:warehouse -> fact_sample",
                 "detail": "Spark/Parquet -> warehouse table (+ load_dt)",
             },
         ],
@@ -110,7 +114,7 @@ DEFAULT_ORIGINS: list[dict] = [
         "label": "Manual Excel · \\\\fileserver\\share\\team",
         "detail": "operator-maintained Excel files on a network share (no auto pipeline)",
         "tables": [
-            "Recommendation status",
+            "Status",
             "Time in queue",
             "Comments",
         ],
@@ -136,13 +140,13 @@ DEFAULT_ORIGINS: list[dict] = [
         "key": "personal_disk",
         "category": "origin-manual",
         "label": "Manual Excel · personal drive",
-        "detail": "source_merged.xlsx - a reference of business lines/owners",
+        "detail": "reference.xlsx - a hand-maintained reference table",
         "tables": ["Business line"],
         "stages": [
             {
                 "stage": "source",
-                "label": "source_merged.xlsx",
-                "detail": "C:\\path\\to\\source_merged.xlsx",
+                "label": "reference.xlsx",
+                "detail": "C:\\path\\to\\reference.xlsx",
             },
             {
                 "stage": "process",
@@ -161,7 +165,7 @@ DEFAULT_ORIGINS: list[dict] = [
         "category": "origin-reference",
         "label": "Inline reference table",
         "detail": "a constant inside the .pbix M code; no external source",
-        "tables": ["Materiality"],
+        "tables": ["Threshold"],
         "stages": [
             {
                 "stage": "source",

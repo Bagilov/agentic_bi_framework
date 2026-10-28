@@ -25,16 +25,19 @@ import logging
 from pathlib import Path
 
 import agentic_bi.paths as paths
+from agentic_bi import settings
 from agentic_bi.publish import publish_pbix
 from agentic_bi.rebuild import rebuild_pbix
 from agentic_bi.skeleton import build_skeleton
 
 logger = logging.getLogger(__name__)
 
-# Model object names from the donor that the new visual references (rebuild_pbix).
-DEFAULT_TABLE = "fact_table"
-DEFAULT_COL = "metric"
-DEFAULT_MEASURE = "score"
+# Model object names referenced by the rebuilt visual. The donor's own names are
+# supplied by the caller (explicit argument > `agentic_bi.settings` environment >
+# neutral default), so nothing donor-specific is baked in here.
+DEFAULT_TABLE = settings.DEFAULT_TABLE
+DEFAULT_COL = settings.DEFAULT_COLUMN
+DEFAULT_MEASURE = settings.DEFAULT_MEASURE
 DEFAULT_DISPLAY = "Rebuilt report"
 
 # Defaults are intentionally neutral: override via CLI/config.
@@ -105,9 +108,9 @@ def run(
     name: str = DEFAULT_NAME,
     folder: str = DEFAULT_FOLDER,
     display_name: str = DEFAULT_DISPLAY,
-    table: str = DEFAULT_TABLE,
-    col: str = DEFAULT_COL,
-    measure: str = DEFAULT_MEASURE,
+    table: str | None = None,
+    col: str | None = None,
+    measure: str | None = None,
     cfg: dict | None = None,
     dry_run: bool = False,
 ) -> dict:
@@ -120,8 +123,14 @@ def run(
 
     # 1. Build
     logger.info("Building .pbix from donor %s", src)
+    names = settings.resolve_model(table=table, column=col, measure=measure)
     out = rebuild_pbix(
-        src, out, display_name=display_name, table=table, col=col, measure=measure
+        src,
+        out,
+        display_name=display_name,
+        table=names.table,
+        col=names.column,
+        measure=names.measure,
     )
     result["built"] = {"path": str(out), "size": out.stat().st_size}
     logger.info("Built .pbix: %s (%.1f KB)", out, out.stat().st_size / 1024)
@@ -265,11 +274,19 @@ def main() -> None:
         "--display", default=DEFAULT_DISPLAY, help="page name in the layout"
     )
     parser.add_argument(
-        "--table", default=DEFAULT_TABLE, help="model table in the layout"
+        "--table",
+        default=None,
+        help=f"model table in the layout (default: {DEFAULT_TABLE})",
     )
-    parser.add_argument("--col", default=DEFAULT_COL, help="model column in the layout")
     parser.add_argument(
-        "--measure", default=DEFAULT_MEASURE, help="model measure in the layout"
+        "--col",
+        default=None,
+        help=f"model column in the layout (default: {DEFAULT_COL})",
+    )
+    parser.add_argument(
+        "--measure",
+        default=None,
+        help=f"model measure in the layout (default: {DEFAULT_MEASURE})",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="build only, without publishing"

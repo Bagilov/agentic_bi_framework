@@ -21,6 +21,7 @@ import logging
 import zipfile
 from pathlib import Path
 
+from agentic_bi import settings
 from agentic_bi.layout_meta import decode_layout_with_encoding
 
 logger = logging.getLogger(__name__)
@@ -119,9 +120,9 @@ def rebuild_pbix(
     src: Path,
     out: Path,
     display_name: str = "Rebuilt report",
-    table: str = "fact_table",
-    col: str = "metric",
-    measure: str = "score",
+    table: str | None = None,
+    col: str | None = None,
+    measure: str | None = None,
     layout: dict | None = None,
 ) -> Path:
     """Rebuild a .pbix: take the DataModel and binary parts from src, embed our
@@ -132,7 +133,8 @@ def rebuild_pbix(
         out: where to save the new .pbix.
         display_name: page name in the new layout.
         table/col/measure: model objects from the DataModel referenced by the new
-            visual (must exist in the src model).
+            visual (must exist in the src model). Each ``None`` resolves from
+            ``agentic_bi.settings`` (environment or neutral default).
         layout: a ready layout dict (e.g. from skeleton). Contains `sections`
             and `id`. If given, it is used as-is instead of `_new_layout`.
     """
@@ -141,7 +143,10 @@ def rebuild_pbix(
     # source base layout, to preserve resourcePackages/config
     base_layout, layout_enc = _extract_layout(src)
     if layout is None:
-        new_layout = _new_layout(display_name, table, col, measure, base_layout)
+        names = settings.resolve_model(table=table, column=col, measure=measure)
+        new_layout = _new_layout(
+            display_name, names.table, names.column, names.measure, base_layout
+        )
     else:
         new_layout = layout
 

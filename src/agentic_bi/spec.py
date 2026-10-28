@@ -8,8 +8,8 @@ Format (YAML/JSON):
 
     dashboard:
       name: "Overview board"
-      table: fact_table
-      measure_table: kpi_measures   # optional
+      table: Data                   # model table (columns/axes/filters)
+      measure_table: Measures       # optional; measures come from this table
       pages:
         - name: p1
           title: "Main"
@@ -49,6 +49,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from agentic_bi import settings
 from agentic_bi.board import Board, col, measure
 
 logger = logging.getLogger(__name__)
@@ -162,7 +163,7 @@ def from_dict(d: dict) -> DashboardSpec:
     pages = [_parse_page(p) for p in dash.get("pages", []) or []]
     return DashboardSpec(
         name=dash.get("name", ""),
-        table=dash.get("table", "fact_table"),
+        table=settings.resolve_model(table=dash.get("table")).table,
         measure_table=dash.get("measure_table"),
         pages=pages,
         quality=d.get("quality", {}) or {},

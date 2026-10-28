@@ -23,27 +23,15 @@ import agentic_bi.paths as paths
 logger = logging.getLogger(__name__)
 
 # ─── Neutral example model (shape: table -> {"columns": [...], "measures": [...]}) ──
+# Deliberately donor-free: the names mirror the sample skeleton in
+# `skeleton_assembly.main()` (`Data` + segment/period_start/target/...), so the
+# validator is exercised without importing any one team's model. A real donor's
+# registry is passed explicitly or loaded from JSON (`load_registry`); an
+# example lives in `examples/donor_registry.json`.
 EXAMPLE_REGISTRY: dict = {
-    "Filters": {
-        "columns": ["entity_id", "version", "segment", "category", "period"],
-        "measures": [],
-    },
-    "fact_table": {
-        "columns": [
-            "as_of_date",
-            "metric",
-            "entity_id",
-            "segment",
-            "category",
-            "period",
-            "period_start",
-        ],
-        "measures": [],
-    },
-    "dim_type": {"columns": ["category"], "measures": []},
-    "kpi_measures": {
-        "columns": ["dt_period_start"],
-        "measures": ["metric_a", "metric_b", "rank_metric", "total_metric"],
+    "Data": {
+        "columns": ["segment", "period_start", "target", "score", "cnt"],
+        "measures": ["TotalTarget", "AvgScore", "Count"],
     },
 }
 

@@ -72,8 +72,8 @@ class TestRegistryWiring:
         assert problems and "not in the donor model" in problems[0]
 
     def test_example_registry_shape_is_stable(self) -> None:
-        assert "fact_table" in EXAMPLE_REGISTRY
-        assert set(EXAMPLE_REGISTRY["kpi_measures"]) == {"columns", "measures"}
+        assert "Data" in EXAMPLE_REGISTRY
+        assert set(EXAMPLE_REGISTRY["Data"]) == {"columns", "measures"}
 
     def test_load_registry_round_trips_a_json_file(self, tmp_path: Path) -> None:
         path = tmp_path / "reg.json"
@@ -286,8 +286,5 @@ class TestValidatePbixReadsTheContainer:
 
         out = template_copy.parent / "v2.pbix"
         rebuild_pbix(template_copy, out, display_name="V")
-        registry = {
-            "fact_table": {"columns": ["metric"], "measures": []},
-            "kpi_measures": {"columns": [], "measures": ["score"]},
-        }
+        registry = {"Data": {"columns": ["Value"], "measures": ["Value"]}}
         assert validate_pbix(out, registry) == []

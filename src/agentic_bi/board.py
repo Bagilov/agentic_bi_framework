@@ -10,7 +10,7 @@ Example:
     from pathlib import Path
     from agentic_bi.board import Board, col, measure
 
-    board = Board(table="fact_table", measure_table="kpi_measures")
+    board = Board(table="Data", measure_table="Measures")
     p1 = board.add_page("p1", "Main")
     p1.header("Dashboard · Overview")
     p1.kpi(measure("metric_a", "Metric A"))
@@ -38,6 +38,7 @@ import json
 import logging
 from pathlib import Path
 
+from agentic_bi import settings
 from agentic_bi.skeleton import (
     build_report as _build_report,
 )
@@ -283,14 +284,17 @@ class Board:
     """A board = several pages; each page is a set of elements.
 
     Args:
-        table: the columns table (alias "m").
-        measure_table: the measures table (optional; measures alias "s").
+        table: the columns table (alias "m"); ``None`` resolves from
+            ``agentic_bi.settings`` (environment or neutral default).
+        measure_table: the measures table (optional; measures alias "s");
+            ``None`` resolves from ``agentic_bi.settings``.
     """
 
-    def __init__(self, table: str = "fact_table", measure_table: str | None = None):
-        self.table = table
-        self.measure_table = measure_table
-        self.measure_alias = "s" if measure_table else None
+    def __init__(self, table: str | None = None, measure_table: str | None = None):
+        names = settings.resolve_model(table=table, measure_table=measure_table)
+        self.table = names.table
+        self.measure_table = names.measure_table
+        self.measure_alias = "s" if names.measure_table else None
         self.pages: list[PageView] = []
         self._name_counter = 0
 

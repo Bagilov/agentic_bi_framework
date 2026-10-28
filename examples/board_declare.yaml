@@ -1,26 +1,31 @@
 # Example declarative dashboard spec (agentic_bi)
 # Full lifecycle: develop / test / deploy / control / support.
 # Load it with agentic_bi.spec.load() and translate it via spec_to_board().
+#
+# The table/measure names are examples of a model the report targets; they must
+# exist in the donor DataModel the report is folded into. Override them via
+# `agentic_bi.settings` (env PBI_MODEL_TABLE/PBI_MODEL_MEASURE_TABLE) or by
+# editing this file — nothing here is hardcoded in the package.
 dashboard:
   name: "Overview board (example)"
-  table: fact_table
-  measure_table: kpi_measures
+  table: Data
+  measure_table: Measures
   pages:
     - name: p1
       title: "Main"
       header: "Dashboard · Overview"
-      filters: [category, metric]
+      filters: [segment, period_start]
       elements:
         - type: kpi
-          field: {kind: measure, property: metric_a, display: "Metric A"}
+          field: {kind: measure, property: TotalTarget, display: "Total target"}
         - type: chart
           visual_type: lineChart
           axis:  {kind: column,  property: period_start, display: "Period"}
-          value: {kind: measure, property: metric_b,    display: "Metric B"}
+          value: {kind: measure, property: AvgScore,     display: "Average score"}
         - type: table
           fields:
-            - {kind: column,  property: metric, display: "Metric"}
-            - {kind: measure, property: metric_a,    display: "Metric A"}
+            - {kind: column,  property: segment,     display: "Segment"}
+            - {kind: measure, property: TotalTarget, display: "Target"}
 
 # ── Testing: threshold overrides from the thresholds.py catalog ──
 quality:
