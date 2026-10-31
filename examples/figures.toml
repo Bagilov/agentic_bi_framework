@@ -1,0 +1,49 @@
+# Example figure plan for `agentic-bi-shots`.
+#
+# A plan is the single source of truth for a figure set: every image names its
+# source and its exact render parameters, so a set can be rebuilt byte-for-byte
+# and verified by hash. Sources live in `examples/shots/` next to this plan;
+# `base_dir` is resolved against the plan file, not the current directory.
+#
+# Run:
+#     agentic-bi-shots --plan examples/figures.toml \
+#         --out-dir output_files/figures
+#     agentic-bi-shots verify --manifest output_files/figures/manifest.json
+
+base_dir = "shots"
+
+# Applied first; a figure's own keys win.
+[defaults]
+scale = 2.0
+settle_ms = 300
+
+# A captured console run turned into a terminal card. Wrapping and card sizing
+# happen in Python, so the card is exactly as tall as its content.
+[[figures]]
+name = "terminal-card"
+kind = "terminal"
+source = "sample-run.txt"
+title = "quality gates"
+columns = 88
+point = 13
+
+# Any HTML document: a report clone, a board guide page, a hand-written card.
+[[figures]]
+name = "html-card"
+kind = "html"
+source = "sample-card.html"
+width = 600
+height = 240
+
+# A <canvas> figure is plain `html`: the browser paints the canvas before the
+# screenshot, so charts and diagrams need no special kind. Drawing that runs
+# from a timer (a `setTimeout`/`requestAnimationFrame` callback) is captured as
+# long as it fires within `settle_ms` — virtual time is fast-forwarded, not
+# slept through, so `settle_ms = 300` runs every timer scheduled up to 300 ms.
+[[figures]]
+name = "canvas-chart"
+kind = "html"
+source = "sample-chart.html"
+width = 360
+height = 180
+settle_ms = 500

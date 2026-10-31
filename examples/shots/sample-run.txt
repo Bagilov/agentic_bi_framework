@@ -1,0 +1,10 @@
+$ agentic-bi-board-guide --pbix board.pbix --shots shots --dax
+pages=2 visuals=7 dax_measures=15
+guide pages=2 out=output_files/board_guide
+
+$ agentic-bi-web-clone --pbix board.pbix --model-registry --out clone.html
+pages=2 elements=7 issues=0
+
+$ agentic-bi-visual-check board.pbix registry.json
+ERRORS: 0
+exit code: 0

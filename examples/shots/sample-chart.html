@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>canvas figure example</title>
+<style>
+  html, body { margin: 0; background: #11161f; }
+  canvas { display: block; }
+</style>
+<canvas id="chart" width="360" height="180"></canvas>
+<script>
+  var ctx = document.getElementById("chart").getContext("2d");
+  var bars = [["Alpha", 0.42, "#4499ff"], ["Beta", 0.74, "#7ee787"], ["Gamma", 0.61, "#febc2e"]];
+  ctx.fillStyle = "#1b2230";
+  ctx.fillRect(0, 0, 360, 180);
+  bars.forEach(function (bar, i) {
+    var x = 24 + i * 112;
+    var h = Math.round(bar[1] * 130);
+    ctx.fillStyle = bar[2];
+    ctx.fillRect(x, 156 - h, 72, h);
+    ctx.fillStyle = "#8b97ab";
+    ctx.font = "13px -apple-system, sans-serif";
+    ctx.fillText(bar[0], x, 172);
+  });
+</script>
