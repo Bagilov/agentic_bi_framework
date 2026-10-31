@@ -790,3 +790,233 @@ Notes:
 - `pbixray` is optional: without it the `BIND-*-MISSING` checks are skipped.
 - Tests: `tests/test_web_report_checks.py` (checks) and
   `tests/test_web_report_render.py` (layout render + the shipped donor + a board).
+
+---
+
+## 18. Annotated board guide (`board_guide/`)
+
+`web_report` is a **layout** view: every element box is drawn with a mock glyph,
+because the real visuals cannot render outside the engine. `board_guide` is its
+**visual** companion and answers a different question — "what does the board
+actually look like, element by element?" It overlays the **real screenshot** of
+a page with the same `Report/Layout` geometry as transparent hotspots, and a
+side panel explains whatever the cursor is over: visual type, projected fields,
+measures, per-visual filters and (optionally) the measures' DAX.
+
+```
+.pbix ──► Report/Layout ──► GuideGeometry ──┐
+                                            ├─► index.html + guide_<page>.html
+screenshot (Desktop | portal | test) ───────┘   (image + % hotspots)
+```
+
+Neither reads images: the picture is for the human, while the hotspots and the
+help text are derived from the layout, so an agent can validate the guide without
+vision. The hotspot boxes are canvas **percentages** (`x/width`), so the same
+guide is correct at any screenshot scale — the layout canvas is scaled to the
+image, which preserves its aspect ratio.
+
+Module map:
+
+| Module | Responsibility |
+|---|---|
+| `board_guide/guide_geometry.py` | typed model: `GuideVisual`, `GuidePage`, `GuideGeometry`; `extract_page_geometry`, `load_measure_expressions` |
+| `board_guide/guide_layout.py` | untrusted `Report/Layout` helpers (title, projections, filters, position, hidden pages) |
+| `board_guide/guide_assets.py` | CSS/JS (page stylesheet, index stylesheet, hover/click script) |
+| `board_guide/guide_render.py` | geometry + screenshots -> HTML (`render_page_html`, `build_guide`) |
+| `board_guide/guide_capture.py` | optional Playwright capture of a rendered report (extra `guide`) |
+| `board_guide/guide_cli.py` | `agentic-bi-board-guide` CLI |
+
+Two independent inputs, both optional:
+
+* **screenshots** — a directory of `page_<stem>.png` files (`--shots`); any
+  source works (a Desktop capture, a CI artifact, a hand-made set). A page
+  without a screenshot is skipped, so a partial capture still yields a usable
+  guide; `--src-prefix` emits every page against an external image prefix;
+* **capture** — `--capture-url` opens a rendered report with Playwright and
+  shoots each page. The report URL, the page-area selectors and the visual
+  marker are all parameters, and the browser binary is discovered via
+  `GUIDE_CHROME`/`PLAYWRIGHT_CHROME` or the usual per-OS locations, so nothing
+  host-specific is baked in.
+
+### CLI
+
+```bash
+# annotate existing screenshots (the guide itself needs no extra dependency)
+agentic-bi-board-guide --pbix board.pbix --shots shots/ --out-dir output_files/guide
+
+# capture the screenshots first (needs the `guide` extra + a Chromium binary)
+agentic-bi-board-guide --pbix board.pbix --capture-url "$REPORT_URL" --headful
+
+# also attach the measures' DAX (needs pbixray) and dump the geometry
+agentic-bi-board-guide --pbix board.pbix --shots shots/ --dax --geometry-json geom.json
+```
+
+Exit codes: 0 on success, 2 on a bad input or an unreadable `.pbix`.
+
+### API
+
+```python
+from agentic_bi.board_guide import extract_page_geometry, build_guide
+
+geom = extract_page_geometry("board.pbix")  # pages, boxes, fields, filters
+geom.visual_count  # total visuals
+build_guide(geom, "output_files/guide", screenshots="shots")
+```
+
+Notes:
+
+- Geometry is stdlib-only; `pbixray` is optional (only `--dax`/`--measure DAX`).
+- `displayOption` is **not** a hide marker. Measured: Desktop writes `1` for an
+  ordinary page while this framework's own engine writes `3` for pages it builds
+  and Desktop renders normally; only `hideInReadingView` means "no screenshot".
+  Treating `3` as hidden silently dropped every page of a framework-built board.
+- An `Aggregation` select (`Sum(Table.Col)`) is labelled with its
+  `NativeReferenceName` — that is what the Desktop tooltip shows — and is
+  reported as a field, not a measure.
+- Page file names come from `unique_stems`, not `safe_name` alone. `safe_name`
+  keeps letters of any script (a Cyrillic page keeps a readable stem instead of
+  collapsing to `page`), but it is not injective — `"A/B"`, `"A B"` and `"A_B"`
+  all give `"A_B"`. `unique_stems` appends `-2`, `-3`, … so two pages can never
+  share `guide_<stem>.html` or `page_<stem>.png`; `capture_pages` uses the same
+  rule, so the screenshot lookup and the emitted names cannot drift apart.
+  Adversarial audit found and fixed three further holes: the numbering now
+  checks each candidate against **every** stem already used, so a page literally
+  named `"A_B-2"` no longer reuses a duplicate's suffix; the collision check is
+  case-insensitive, so `"Sales"` and `"sales"` stay distinct on a
+  case-insensitive filesystem (macOS default); and a very long name is truncated
+  with a short hash, so `guide_<stem>.html` stays under the 255-byte filename
+  limit instead of aborting mid-loop with `OSError` and no index. The logic
+  lives in `guide_names.py`; `guide_geometry`/`guide_capture` re-use it (no
+  second copy that could drift).
+- A visual's box comes from `layouts[0].position` only when both `x` and `y` are
+  finite numbers; a malformed coordinate (`"abc"`, `null`, `"nan"`) falls back to
+  the container's box instead of silently producing a `0` origin that would place
+  the hotspot in the top-left corner. Hotspot percentages are clamped to
+  `[0, 100]`, so a negative or oversized box cannot place a hotspot off-screen.
+- `as_float` rejects `NaN`/`Infinity` like any other unparsable value (they would
+  otherwise become `nan%` CSS and a non-standard `NaN` token in `geometry.json`);
+  `--geometry-json` serializes with `allow_nan=False` as a second guard.
+- Untrusted `Report/Layout` degrades rather than raising: `load_layout` returns
+  `{}` when the top level is not an object, and every helper walks the layout
+  through `as_dict`/`as_list`, so a `sections` that is a string, a `singleVisual`
+  that is a number or a `Where` that is a string are skipped. Previously these
+  escaped as `AttributeError`/`TypeError` — exit 1 with a traceback, since the CLI
+  boundary only turns `ValueError`/`OSError` into exit 2.
+- The injected `<script>` payload escapes `<`, `>`, `&` and the JS line
+  terminators U+2028/U+2029, so a visual title can never break out of the script
+  element or the string. The capture JS builders escape the selector/area strings
+  they interpolate (`_js_string`), so a quote in a configured selector cannot
+  produce broken JS.
+- Tests: `tests/test_board_guide_names.py`, `tests/test_board_guide_geometry.py`,
+  `tests/test_board_guide_robustness.py`, `tests/test_board_guide_render.py`,
+  `tests/test_board_guide_cli.py`.
+
+---
+
+## 19. Deterministic screenshots (`shots/`)
+
+Article and report figures are usually hand-made: one throwaway script per image,
+a browser flag list copied around, and no record of what produced what. `shots/`
+turns a figure set into a reproducible object: a **plan** names every figure and
+its exact render parameters, one **renderer** owns the single headless-Chromium
+invocation, and a **manifest** records each PNG's size and SHA-256 so a stale or
+hand-edited image is caught instead of shipped.
+
+```
+plan (TOML/JSON) ──► FigureSpec ──┬─ kind=terminal ─► terminal card HTML ─┐
+                                  └─ kind=html ───────────────────────────┤
+                                                                          ▼
+                                     headless Chromium (one flag list) ─► PNG
+                                                                          │
+                                          manifest.json (sha256, bytes) ◄─┘
+                                                     │
+                                        `agentic-bi-shots verify` re-hashes
+```
+
+| Module | Responsibility |
+|---|---|
+| `shots/shots_types.py` | `FigureSpec`, `ShotPlan`; validated fields, no silent typos |
+| `shots/shots_render.py` | the one headless-Chromium call and every flag |
+| `shots/shots_terminal.py` | captured console text -> deterministic terminal card |
+| `shots/shots_manifest.py` | manifest, SHA-256, drift detection |
+| `shots/shots_build.py` | orchestrator: walk the plan, render, hash, write |
+| `shots/shots_cli.py` | `agentic-bi-shots` (`build` / `verify`) |
+
+### CLI
+
+```bash
+# build the figures a plan names
+agentic-bi-shots --plan examples/figures.toml --out-dir output_files/figures
+
+# restrict to some figures, or relax a missing source to a warning
+agentic-bi-shots build --plan examples/figures.toml --only terminal-card --no-strict
+
+# re-hash a built set against its manifest (drift detection)
+agentic-bi-shots verify --manifest output_files/figures/manifest.json
+
+# the same, plus a plan-coverage check (every plan figure is present)
+agentic-bi-shots verify --manifest output_files/figures/manifest.json \
+    --plan examples/figures.toml
+```
+
+Exit codes: 0 on success; 1 when a figure failed or a set drifted; 2 on a bad
+plan or unreadable input.
+
+### API
+
+```python
+from agentic_bi.shots import ShotPlan, build_shots, verify_manifest
+
+plan = ShotPlan.load("examples/figures.toml")  # base_dir resolves from the file
+result = build_shots(plan, "output_files/figures")
+assert result.ok, result.failures
+assert verify_manifest(result.manifest) == []
+```
+
+Notes, each measured rather than assumed:
+
+- The browser is **polled for a settled PNG and then terminated**, never waited
+  on: this Chrome build writes the file in under a second but does not always
+  exit (and its crashpad child holds the stdout/stderr pipe open), so waiting on
+  `exit` hung every render — the shots suite went from 81 s of hangs to ~3 s.
+- Each render uses a throwaway `--user-data-dir` so it never touches the user's
+  real profile; `--no-first-run`/`--no-default-browser-check` are required with a
+  fresh profile or the browser blocks on first-run setup.
+- A terminal figure **sizes its own viewport**: wrapping and card height come from
+  the text, so the PNG is exactly the card, with no letterboxing. Wrapping
+  measures **display cells**, not code points (a CJK glyph is two cells, a
+  combining mark none), so a wide-glyph line cannot overflow and clip.
+- **Headless Chromium will not lay out a window shorter than 144 CSS px**
+  (`shots_render.MIN_WINDOW_HEIGHT`, measured on the shipped build): below it the
+  layout viewport is clamped while the PNG still gets the requested height, so the
+  bottom of the page is dropped with no error. Every window goes through
+  `window_height()`, and a card that would be shorter is padded with its own
+  background. This was a real defect: a two-line card asked for ~121 px and the
+  PNG contained only its title bar.
+- A malformed `manifest.json` is bad **input**, not a framework crash: a missing
+  field, a figure that is not a mapping, or a value that will not convert raises
+  `ValueError` (`RenderRecord.from_dict`), which the CLI maps to exit code 2
+  instead of escaping as a `KeyError`/`TypeError` traceback.
+- **`verify` checks the recorded set, and with `--plan` also the plan.** By
+  default it only proves the recorded PNGs exist and still hash to their
+  manifest values, so a run that built fewer figures than the plan asks for
+  (`--only`, `--no-strict`) passes unnoticed. Passing `--plan` makes a figure
+  that the plan names but the manifest lacks a `DRIFT` problem (exit 1).
+- A plan cannot write outside `--out-dir`: `out` and `name` are rejected if they
+  carry a directory component, an absolute path or `..`.
+- Highlight markers are applied longest-first in one pass, so a marker that is a
+  substring of a longer one does not nest a `<span>` in a `<span>`.
+- `settle_ms` is a `--virtual-time-budget`: virtual time is fast-forwarded, not
+  slept through (a 5000 ms timer with a 500 ms budget never fires, and the render
+  still takes ~0.85 s). A `<canvas>` draw scheduled from a timer is therefore
+  captured only when the callback falls inside the budget, so a chart with
+  deferred painting raises `settle_ms`. Canvas needs no separate kind: it is an
+  `html` figure like any other.
+- `render_html_string` closes the descriptor `mkstemp` returns before writing the
+  temp file. Leaving it open leaked one fd per rendered string figure, so a set
+  of many terminal cards could exhaust the process limit.
+- Tests are split by whether a browser is needed: `tests/test_shots.py` (pure
+  parts, always run) and `tests/test_shots_render.py` (renders; skips without a
+  browser).
+
+Process description (RU): [docs/SHOTS.md](SHOTS.md).

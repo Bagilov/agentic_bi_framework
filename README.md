@@ -27,12 +27,15 @@ agentic_bi_framework/
 ├── docs/
 │   ├── FRAMEWORK.md           # the framework: concepts, lifecycle, methods
 │   ├── IMPLEMENTATION.md      # reference implementation details / API map
+│   ├── SHOTS.md               # deterministic screenshot pipeline (RU process doc)
 │   ├── BRAND_AUDIT.md         # brand compliance auditing
 │   └── DEVELOPMENT_MACOS.md   # macOS + UTM dev setup and testing
 ├── examples/
 │   ├── board_declare.yaml     # declarative multi-page board spec
 │   ├── engine_custom_visuals.py
 │   ├── web_report_clone.py    # HTML clone of a dashboard + per-element checks
+│   ├── board_guide.py         # annotated screenshot guide of a `.pbix`
+│   ├── figures.toml           # declarative screenshot figure set (agentic-bi-shots)
 │   └── engine_sales.csv
 ├── pyproject.toml             # packaging & optional dependency groups
 └── src/agentic_bi/            # the implementation (depth)
@@ -48,6 +51,8 @@ agentic_bi_framework/
     ├── publish.py / automate.py
     ├── pbix_binary/           # member-level binary DataModel editing (incl. uneven length)
     ├── web_report/            # HTML clone of a dashboard as an interactive layout + per-element checks
+    ├── board_guide/           # annotated screenshot guide: real page image + visual hotspots
+    ├── shots/                 # deterministic screenshots of HTML/console figures (plan + manifest)
     ├── lineage/               # vendored: .pbix lineage extraction
     ├── antipatterns/          # vendored: DAX/M antipattern analysis
     ├── reportserver/          # vendored: generic Report Server access
@@ -121,8 +126,13 @@ The core runs on the Python standard library alone. Integrations are opt-in:
 | `report` | multi-page PDF lineage report (diagram + matrix + brand) |
 | `binary` | member-level binary DataModel (ABF) editing (`xpress9`) |
 | `guest` | Windows-guest chain over WinRM (build + Desktop oracle in a UTM VM) |
+| `guide` | Playwright capture for the annotated board guide (geometry needs none) |
 | `dev` | linter/formatter (`ruff`) + `pytest` |
 | `all` | every integration above |
+
+The `shots` pipeline (deterministic figures from HTML/console text) needs no extra:
+it drives whatever Chromium binary the machine already has, discovered by path or
+`GUIDE_CHROME`. See [docs/SHOTS.md](docs/SHOTS.md).
 
 ## License
 
