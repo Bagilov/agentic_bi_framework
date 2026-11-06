@@ -136,8 +136,15 @@ class TestSpecValidationOfChartTypeAndFilters:
             )
             assert validate_spec(spec) == []
 
-    @pytest.mark.parametrize("bad", [123, None, {"a": 1}, "", "  "])
-    def test_non_string_filter_is_reported(self, bad) -> None:
+    @pytest.mark.parametrize("bad", [123, None, {"a": 1}])
+    def test_non_string_filter_is_rejected_at_the_boundary(self, bad) -> None:
+        # A filter that is not a string cannot become `list[str]`: the parse
+        # fails with the exact path instead of shipping a corrupt spec.
+        with pytest.raises(ValueError, match=r"filters\[0\]': expected string"):
+            self._spec({"type": "table", "fields": [{"property": "c"}]}, [bad])
+
+    @pytest.mark.parametrize("bad", ["", "  "])
+    def test_blank_filter_is_reported(self, bad: str) -> None:
         from agentic_bi.spec import validate_spec
 
         spec = self._spec({"type": "table", "fields": [{"property": "c"}]}, [bad])
