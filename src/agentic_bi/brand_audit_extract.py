@@ -4,6 +4,10 @@ Compatibility shim, kept for one release. This module *is* the moved module: the
 name is rebound in :data:`sys.modules`, so ``from agentic_bi.brand_audit_extract import X``
 (including private names) behaves exactly like importing
 :mod:`agentic_bi.brand.audit_extract`. New code should use the new path directly.
+
+There is no command-line entry point here: `python -m
+agentic_bi.brand_audit_extract` exits 2 with a pointer to the real CLI instead of
+silently doing nothing.
 """
 
 from __future__ import annotations
@@ -13,3 +17,12 @@ import sys
 import agentic_bi.brand.audit_extract as _module
 
 sys.modules[__name__] = _module
+
+
+if __name__ == "__main__":  # pragma: no cover
+    print(
+        "agentic_bi.brand_audit_extract: error: this module has no command-line "
+        "interface; use agentic-bi-brand-audit",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)

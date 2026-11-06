@@ -4,8 +4,10 @@ Pure evaluation logic: given a normalized ``theme`` dict, it produces
 :class:`Finding` objects. Palette/fonts/thresholds come from the sibling brand
 modules so the rules live in one place.
 
-Background/contrast evaluation lives in `brand.eval_background` and is re-exported
-here so `brand.eval` stays the single public entry point.
+Background/contrast evaluation lives in `brand.eval_background`, the per-component
+font/element rules in `brand.eval_rules`, and both are re-exported here so
+`brand.eval` stays the single public entry point; this module owns running every
+rule on a theme and assembling the verdict report.
 
 Public API:
     is_brand_font(name) / is_fallback(name)         - family classification
@@ -24,151 +26,30 @@ from agentic_bi.brand.eval_background import (
     contrast_ratio,
 )
 from agentic_bi.brand.eval_common import (
-    _ALL_HEX,
     _chromatic_off_palette,
-    _hex_norm,
-    _is_neutral,
     _match_hex,
     _primary_count,
 )
-from agentic_bi.brand.fonts import FONTS
+from agentic_bi.brand.eval_rules import (
+    _BRAND_FAMILY_TOKENS as _BRAND_FAMILY_TOKENS,
+)
+from agentic_bi.brand.eval_rules import (
+    _base_elements_count as _base_elements_count,
+)
+from agentic_bi.brand.eval_rules import (
+    _font_family as _font_family,
+)
+from agentic_bi.brand.eval_rules import (
+    element_findings,
+    font_family_findings,
+    is_brand_font,
+    is_fallback,
+)
 from agentic_bi.brand.palette import PALETTE_PRIMARY
 from agentic_bi.brand.rules import (
-    ALLOWED_WEIGHTS,
-    BASE_ELEMENTS_MIN,
-    FALLBACK_FONTS,
     PRIMARY_COLOR_MIN,
     Finding,
 )
-
-_BRAND_FAMILY_TOKENS = tuple(f.family.lower() for f in FONTS)
-
-
-def _font_family(name: str) -> str:
-    """Normalize a font name to a lowercase, single-spaced form."""
-    n = str(name).lower().replace("_", " ").replace("-", " ")
-    return " ".join(n.split())
-
-
-def is_brand_font(name: str) -> bool:
-    """Whether the font is a configured brand family."""
-    f = _font_family(name)
-    return any(tok in f for tok in _BRAND_FAMILY_TOKENS)
-
-
-def is_fallback(name: str) -> bool:
-    """Whether the font is an allowed system fallback (not a brand font)."""
-    f = _font_family(name)
-    return any(fb in f for fb in FALLBACK_FONTS)
-
-
-def _base_elements_count(theme: dict) -> int:
-    """Number of base brand elements present in the theme.
-
-    color  - at least one brand color;
-    font   - a brand font is present in ``theme.get("fonts")``;
-    foundation - ``theme.get("foundation", False)`` (pattern/foundation).
-    """
-    count = 0
-    if theme and any(
-        _hex_norm(c) in _ALL_HEX for c in theme.get("colors", {}).values()
-    ):
-        count += 1
-    fonts = theme.get("fonts", [])
-    if any(is_brand_font(str(f)) for f in fonts):
-        count += 1
-    if bool(theme.get("foundation")):
-        count += 1
-    return count
-
-
-def font_family_findings(fonts: list[str] | None) -> list[Finding]:
-    """Evaluate the font set: presence of brand fonts and allowed weights."""
-    out: list[Finding] = []
-    fonts = fonts or []
-    if not fonts:
-        out.append(
-            Finding(
-                "FONT-FAMILY-BRAND",
-                "warning",
-                "No fonts specified - the brand fonts are not confirmed.",
-                category="font",
-            )
-        )
-        return out
-
-    brand_fonts = [f for f in fonts if is_brand_font(f)]
-    if not brand_fonts:
-        out.append(
-            Finding(
-                "FONT-FAMILY-BRAND",
-                "warning",
-                "There is no brand font among the fonts.",
-                "used: " + ", ".join(map(str, fonts)),
-                category="font",
-            )
-        )
-        return out
-
-    for f in fonts:
-        if is_brand_font(f) or is_fallback(f):
-            continue
-        out.append(
-            Finding(
-                "FONT-FAMILY-BRAND",
-                "warning",
-                f"Disallowed family: {f!r} (not in the brand book).",
-                "allowed: brand fonts or a system fallback",
-                category="font",
-            )
-        )
-
-    for f in brand_fonts:
-        fam = _font_family(f)
-        weight = fam
-        for tok in _BRAND_FAMILY_TOKENS:
-            weight = weight.replace(tok, "")
-        weight = weight.replace(" italic", "").strip()
-        if weight and weight.title() not in ALLOWED_WEIGHTS:
-            out.append(
-                Finding(
-                    "FONT-WEIGHT-ALLOWED",
-                    "warning",
-                    f"Disallowed brand weight: {weight!r}.",
-                    category="font",
-                )
-            )
-    return out
-
-
-def element_findings(theme: dict) -> list[Finding]:
-    """Evaluate brand elements: 2 of 3 base, foundation, logo."""
-    out: list[Finding] = []
-    be = _base_elements_count(theme)
-    if be < BASE_ELEMENTS_MIN:
-        out.append(
-            Finding(
-                "ELEM-BASE-2OF3",
-                "info",
-                f"{be} of 3 base brand elements are used "
-                f"(at least {BASE_ELEMENTS_MIN} required).",
-                "counted: brand color / brand font / foundation",
-                category="element",
-            )
-        )
-    if theme.get("has_logo") and not _is_neutral(
-        _hex_norm(theme.get("background", "#ffffff"))
-    ):
-        out.append(
-            Finding(
-                "ELEM-LOGO-BG",
-                "info",
-                "The logo is placed on a non-neutral background - use a white backing.",
-                f"bg={theme.get('background')}",
-                category="element",
-            )
-        )
-    return out
 
 
 def evaluate_theme(theme: dict | None) -> list[Finding]:

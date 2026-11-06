@@ -34,12 +34,15 @@ Public API:
     audit_document(path, cfg=None)  -> AuditReport   (pptx/docx/xlsx)
 
 CLI exit codes: 0 normally (findings are reported, not fatal), 1 when `--fail-on`
-is set and matched, 2 on a bad input (unreadable config / unsupported format).
+is set and matched, 2 on a bad input (missing/unreadable document or config, an
+unsupported format).
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from pathlib import Path
 
 from agentic_bi.brand.audit_eval import (
@@ -59,6 +62,8 @@ from agentic_bi.brand.eval import is_brand_font
 
 logger = logging.getLogger(__name__)
 
+PROG = "agentic-bi-brand-audit"
+
 
 def audit_pptx(path: str | Path, cfg: BrandConfig | None = None) -> AuditReport:
     """Check a `.pptx` presentation for brand compliance."""
@@ -72,6 +77,8 @@ def audit_pptx(path: str | Path, cfg: BrandConfig | None = None) -> AuditReport:
         ) from exc
     try:
         prs = Presentation(str(path))
+    except FileNotFoundError:
+        raise
     except Exception as exc:  # noqa: BLE001 - corrupted/non-pptx file
         logger.warning("could not open %s: %s", path, exc)
         rep.add(
@@ -112,41 +119,98 @@ def audit_document(path: str | Path, cfg: BrandConfig | None = None) -> AuditRep
     raise NotImplementedError(f"format {ext!r} is not supported yet (.pptx only)")
 
 
+def _shown(path: str | Path) -> str:
+    """Return `path` for a message: relative to CWD, never an absolute path."""
+    p = Path(path)
+    return str(p) if not p.is_absolute() else os.path.relpath(p, Path.cwd())
+
+
+def _console_safe() -> None:
+    """Keep a non-UTF-8 console (Windows cp1251/cp866) from raising on output."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):  # a closed/replaced stream is not fatal
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    from agentic_bi.cli_support import run_boundary
+    from agentic_bi.cli_support import (
+        EXIT_BAD_INPUT,
+        EXIT_FAILED,
+        EXIT_OK,
+        fail,
+        run_boundary,
+    )
 
+    _console_safe()
     ap = argparse.ArgumentParser(
-        prog="agentic-bi-brand-audit",
+        prog=PROG,
         description="Audit a document for brand-style compliance",
     )
-    ap.add_argument("document", help="path to a .pptx")
-    ap.add_argument("--config", default=None, help="brand_config.yaml/json")
-    ap.add_argument("--json", dest="json_out", default=None, help="save JSON")
+    ap.add_argument("document", help="path to the .pptx to audit")
+    ap.add_argument(
+        "--config",
+        default=None,
+        metavar="YAML|JSON",
+        help="brand config with the project overrides "
+        "(default: the built-in brand defaults)",
+    )
+    ap.add_argument(
+        "--json",
+        dest="json_out",
+        default=None,
+        metavar="JSON",
+        help="also write the findings as JSON here (default: not written)",
+    )
     ap.add_argument(
         "--fail-on",
         choices=["error", "warning", "never"],
         default="never",
-        help="exit code 1 on findings of this level",
+        help="exit 1 when findings of this level exist: error, warning, "
+        "or never (default: never)",
     )
     args = ap.parse_args(argv)
 
     def body() -> int:
-        cfg = BrandConfig.load(args.config) if args.config else BrandConfig.default()
-        rep = audit_document(args.document, cfg)
+        document = Path(args.document)
+        if not document.is_file():
+            return fail(PROG, f"document not found: {_shown(document)}", EXIT_BAD_INPUT)
+        try:
+            cfg = (
+                BrandConfig.load(args.config) if args.config else BrandConfig.default()
+            )
+            rep = audit_document(document, cfg)
+        except RuntimeError as exc:
+            # A missing optional integration (python-pptx, PyYAML) is a
+            # configuration error, not a crash.
+            return fail(PROG, str(exc), EXIT_BAD_INPUT)
         print(rep.format(max_findings=int(cfg.audit.get("max_findings", 0) or 0)))
+
+        unreadable = [f for f in rep.findings if f.rule_id == "DOC-UNREADABLE"]
+        if unreadable:
+            return fail(
+                PROG,
+                f"{_shown(document)}: {unreadable[0].message}",
+                EXIT_BAD_INPUT,
+            )
+
         if args.json_out:
             rep.to_json(args.json_out)
-            print(f"\nJSON: {args.json_out}")
+            print(f"{PROG}: saved {_shown(args.json_out)}")
 
         if args.fail_on == "error" and rep.errors:
-            return 1
+            return EXIT_FAILED
         if args.fail_on == "warning" and (rep.errors or rep.warnings):
-            return 1
-        return 0
+            return EXIT_FAILED
+        return EXIT_OK
 
-    return run_boundary(body, prog="agentic-bi-brand-audit")
+    return run_boundary(body, prog=PROG)
 
 
 if __name__ == "__main__":
