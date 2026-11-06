@@ -12,6 +12,12 @@ unhandled traceback:
 short message on stderr plus a code. An unexpected error is **not** swallowed:
 it stays a traceback, because it is a bug in the framework, not a user mistake.
 
+A body may also return ``EXIT_BAD_INPUT`` itself for a configuration failure it
+detects before doing the work. ``agentic-bi-lineage --plantuml-png`` does this:
+no usable ``plantuml.jar`` (``PLANTUML_JAR`` / ``PLANTUML_JAR_DIR``) or Java is
+a configuration error (``2``), while a source PlantUML cannot compile or render
+is a runtime failure (``1``).
+
 Public API:
     EXIT_OK, EXIT_FAILED, EXIT_BAD_INPUT
     run_boundary(body, prog) -> int
@@ -20,6 +26,7 @@ Public API:
 from __future__ import annotations
 
 import sys
+import zipfile
 from collections.abc import Callable
 
 EXIT_OK = 0
@@ -28,10 +35,14 @@ EXIT_BAD_INPUT = 2
 
 # Failures that mean "the input was wrong", not "the framework is broken": a
 # missing/unreadable path, a value the parser rejects, or an unsupported format.
+# `BadZipFile` is not an `OSError`, so a corrupt `.pbix` used to escape every
+# command that did not translate it itself (`agentic-bi-pbix-patch` ended on a
+# traceback while `agentic-bi-rebuild` returned 2 for the same file).
 _INPUT_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
     ValueError,
     NotImplementedError,
+    zipfile.BadZipFile,
 )
 
 
@@ -39,7 +50,7 @@ def run_boundary(body: Callable[[], int], *, prog: str) -> int:
     """Run a command body, mapping an input failure to exit code 2.
 
     Args:
-        body: the command's real work; returns its exit code (0 or 1).
+        body: the command's real work; returns a documented exit code (0, 1 or 2).
         prog: the program name, used to prefix the error message.
 
     Returns:
