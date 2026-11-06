@@ -1,8 +1,11 @@
-"""Structural checks of a produced `.pbix` (container/layout/bindings/data)."""
+"""Structural checks of a produced `.pbix` (container/layout/bindings/data).
+
+`verify_safe_filters` lives in `engine/verify_filters.py` and is re-exported
+here for the `agentic_bi.engine_verify_checks` compatibility path.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
 import zipfile
 from pathlib import Path
@@ -14,6 +17,7 @@ from agentic_bi.engine.verify_core import (
     _resolve_qref,
     spec_objects,
 )
+from agentic_bi.engine.verify_filters import verify_safe_filters as verify_safe_filters
 from agentic_bi.layout_meta import DECORATIVE_VISUAL_TYPES
 
 logger = logging.getLogger(__name__)
@@ -151,37 +155,6 @@ def verify_bindings(
                 ):
                     bad.append(f"{page}/{vt}/{role}: no column '{real_table}.{col}'")
     return [_check("all projected fields resolve", not bad, str(bad[:5]))]
-
-
-def verify_safe_filters(layout: dict) -> list[CheckResult]:
-    """Guard: filters of the form `column IN (...)` crash the pivot on drill.
-
-    Such visual/page-level filters (`Condition.In`) trigger
-    `QueryExpressionBuilder.visitIn` -> `exprs[i].accept is not a function`.
-    """
-    bad: list[str] = []
-    for s in layout.get("sections", []):
-        if _has_in_filter(s.get("filters", "[]")):
-            bad.append(f"page '{s.get('displayName')}'")
-        for c in s.get("visualContainers", []):
-            if _has_in_filter(c.get("filters", "[]")):
-                bad.append(f"visual in '{s.get('displayName')}'")
-    return [_check("no unsafe IN filters", not bad, str(bad))]
-
-
-def _has_in_filter(raw: str) -> bool:
-    if not raw or raw == "[]":
-        return False
-    try:
-        flts = json.loads(raw)
-    except (ValueError, TypeError):
-        return True
-    for f in flts:
-        where = f.get("filter", {}).get("Where", [])
-        for w in where:
-            if "In" in w.get("Condition", {}):
-                return True
-    return False
 
 
 def verify_model_data(pbix: Path, spec: dict, sample: int = 50) -> list[CheckResult]:

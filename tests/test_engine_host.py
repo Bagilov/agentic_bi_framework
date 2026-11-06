@@ -170,6 +170,26 @@ def test_run_engine_build_retries_then_raises(
     assert len(attempts) == 2
 
 
+def test_run_engine_build_error_carries_both_last_tails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure must report the last attempt, not an unset placeholder."""
+
+    class _Proc:
+        def __init__(self, stdout: str, stderr: str) -> None:
+            self.stdout = stdout
+            self.stderr = stderr
+
+    runs = iter([_Proc("first out", "first err"), _Proc("last out", "last err")])
+
+    monkeypatch.setattr(engine_host.subprocess, "run", lambda cmd, **kw: next(runs))
+    monkeypatch.setattr(engine_host.time, "sleep", lambda _s: None)
+    with pytest.raises(RuntimeError) as excinfo:
+        engine_host.run_engine_build(tmp_path / "spec.json", tmp_path / "out.abf")
+    message = str(excinfo.value)
+    assert "last out" in message and "last err" in message
+
+
 def test_run_oracle_parses_last_verdict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

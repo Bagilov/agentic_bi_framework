@@ -19,11 +19,9 @@ Public API:
     build_layout_from_spec(spec, visuals=None, page_name=None) -> bytes
 
 Aggregations (agg): sum, avg, min, max, count, count_nonnull, median, stddev, var.
-
 Visual-level filters (`Visual.filters`) are supported, but the `column IN (...)`
 form (Condition.In) is NOT generated: it crashes the pivot serializer on expand
-(`visitIn`/`serializeAll`). For a slicer/cross-filter use `slicer` + `matrix` on
-the same table.
+(`visitIn`/`serializeAll`). For a slicer/cross-filter use `slicer` + `matrix`.
 """
 
 from __future__ import annotations
@@ -215,6 +213,8 @@ def gallery_visuals(table: str, columns: list) -> list[Visual]:
 
     Column roles are inferred: numeric -> value, string -> category, date ->
     axis/trend. `columns` may be spec column dicts ({name,type}) or plain names.
+    Stacked charts need a second field for `Series`; with a single category/date
+    column the stacked pair is omitted rather than reusing Category as Series.
     """
     names, nums, cats, dates = _classify_columns(columns)
     num = nums or names
@@ -226,6 +226,7 @@ def gallery_visuals(table: str, columns: list) -> list[Visual]:
     v2 = num[1] if len(num) > 1 else num[0]
     c1 = cat[0] if cat else v1
     d1 = date[0] if date else c1
+    s1 = next((c for c in (*cat, *dates) if c != c1), None)
 
     W, H, GAP, COLS = 600, 320, 40, 4
     specs = [
@@ -252,8 +253,13 @@ def gallery_visuals(table: str, columns: list) -> list[Visual]:
         Visual("treemap", table, axis=c1, value=v1, title="treemap"),
         Visual("funnel", table, axis=c1, value=v2, title="funnel"),
         Visual("waterfall", table, axis=c1, value=v1, title="waterfallChart"),
-        Visual("stackedColumn", table, axis=c1, value=v1, title="stackedColumnChart"),
-        Visual("stackedBar", table, axis=c1, value=v1, title="stackedBarChart"),
+    ]
+    if s1:
+        specs += [
+            Visual(kind, table, axis=c1, value=v1, series=s1, title="stacked")
+            for kind in ("stackedColumn", "stackedBar")
+        ]
+    specs += [
         Visual("scatter", table, x=v1, y=v2, title="scatterChart"),
         Visual("gauge", table, value=v1, title="gauge"),
         Visual("kpi", table, value=v1, trend=d1, title="kpi"),

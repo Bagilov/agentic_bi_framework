@@ -78,7 +78,7 @@ def _rewrite_local_header(
     struct.pack_into("<I", head, lho + 22, usize)
 
 
-def _central_dir_offset(pb: bytes) -> int:
+def _central_dir_offset(pb: bytes | bytearray) -> int:
     """Return the central-directory offset recorded in the EOCD record."""
     eocd = pb.rfind(b"PK\x05\x06")
     _cd_size, cd_off = struct.unpack("<II", pb[eocd + 12 : eocd + 20])

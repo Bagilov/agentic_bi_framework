@@ -153,18 +153,18 @@ def run_engine_build(spec_path: Path, abf: Path, port: int | None = None) -> str
     ]
     if port:
         cmd += ["-Port", str(port)]
-    proc = None
+    out_tail = ""
+    err_tail = ""
     for attempt in (1, 2):
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if abf.exists():
             return (proc.stdout or "")[-400:]
+        out_tail = (proc.stdout or "")[-400:]
+        err_tail = (proc.stderr or "")[-400:]
         if attempt == 1:
             time.sleep(15)
-    logger.error("engine build failed: %s", (proc.stdout or "")[-400:])
-    raise RuntimeError(
-        f"engine build failed:\n{(proc.stdout or '')[-400:]}\n"
-        f"{(proc.stderr or '')[-400:]}"
-    )
+    logger.error("engine build failed: %s", out_tail)
+    raise RuntimeError(f"engine build failed:\n{out_tail}\n{err_tail}")
 
 
 def run_oracle(pbix: Path, hold: int) -> str:

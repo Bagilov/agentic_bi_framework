@@ -5,22 +5,17 @@ Supported visual kinds (see `_VISUAL_TYPES`):
     treemap stackedColumn stackedBar scatter gauge kpi slicer
 
 Projection roles follow real Power BI `Report/Layout` conventions:
-    cartesian / pie / funnel / waterfall : Category + Y (+ Series)
+    cartesian / pie / funnel / waterfall : Category + Y (+ optional Series)
     treemap                              : Group + Values
     scatter                              : X + Y (+ Size)
-    gauge                                : Y
-    kpi                                  : Indicator + TrendLine
+    gauge / kpi                          : Y / Indicator (+ TrendLine)
     table / card / slicer / matrix       : Values (matrix: Rows + Values)
 
-The query primitives (`_col_ref`, `_agg_item`, `_data_query`, ...) live in
-`engine_layout_query`; this module owns the `Visual` description, the kind table
-and the container assembly.
-
-Public API:
-    Visual(kind, table, ...)                       - a visual description
-    _VISUAL_TYPES                                  - kind -> QOM visualType
-    _visual_config(v) -> dict                      - singleVisual config
-    _container(v, x, y, w, h) -> dict              - a visualContainer
+The query primitives live in `engine_layout_query`, the kind/role catalogue in
+`engine_layout_catalog`; this module owns the `Visual` description and the
+container assembly. Public API:
+`Visual(kind, table, ...)`, `_VISUAL_TYPES`, `_visual_config(v)`,
+`_container(v, x, y, w, h)`.
 """
 
 from __future__ import annotations
@@ -30,6 +25,11 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
+from agentic_bi.engine.layout_catalog import (
+    _REQUIRED,
+    _SERIES_KINDS,
+    _VISUAL_TYPES,
+)
 from agentic_bi.engine.layout_query import (
     _agg_item,
     _col_item,
@@ -42,68 +42,12 @@ from agentic_bi.engine.layout_query import (
 
 logger = logging.getLogger(__name__)
 
-# kind -> QOM visualType
-_VISUAL_TYPES = {
-    "table": "tableEx",
-    "matrix": "pivotTable",
-    "card": "card",
-    "column": "columnChart",
-    "bar": "barChart",
-    "line": "lineChart",
-    "area": "areaChart",
-    "pie": "pieChart",
-    "donut": "donutChart",
-    "treemap": "treemap",
-    "funnel": "funnel",
-    "waterfall": "waterfallChart",
-    "stackedColumn": "stackedColumnChart",
-    "stackedBar": "stackedBarChart",
-    "scatter": "scatterChart",
-    "gauge": "gauge",
-    "kpi": "kpi",
-    "slicer": "slicer",
-}
-
-# category charts that accept an optional Series breakdown
-_SERIES_CHARTS = {"stackedColumn", "stackedBar"}
-
-# Per-kind required inputs, checked in `Visual.__post_init__`. Each entry is a
-# *group*: the visual needs at least one of the listed attributes. Checking here
-# (not at render time) rejects a half-built visual before it reaches the layout,
-# where a missing input silently becomes `Sum(table.None)` and renders blank.
-_REQUIRED: dict[str, tuple[tuple[str, ...], ...]] = {
-    "table": (("columns",),),
-    "matrix": (("columns",),),
-    "card": (("measure", "value"),),
-    "gauge": (("measure", "value"),),
-    "kpi": (("measure", "value"),),
-    "slicer": (("axis",),),
-    "treemap": (("axis",), ("measure", "value")),
-    "scatter": (("x", "value"), ("y", "axis")),
-}
-# category charts (column/bar/line/area/pie/donut/funnel/waterfall/stacked*)
-for _kind in (
-    "column",
-    "bar",
-    "line",
-    "area",
-    "pie",
-    "donut",
-    "funnel",
-    "waterfall",
-    "stackedColumn",
-    "stackedBar",
-):
-    _REQUIRED[_kind] = (("axis",), ("measure", "value"))
-
 
 @dataclass
 class Visual:
     """A single visual on a page.
 
-    kind    - one of `_VISUAL_TYPES` (table/matrix/card/column/bar/line/area/
-              pie/donut/funnel/waterfall/treemap/stackedColumn/stackedBar/
-              scatter/gauge/kpi/slicer)
+    kind    - one of `_VISUAL_TYPES`
     table   - the model table name
     columns - a list of columns (table; for matrix - the row hierarchy)
     axis    - the category/axis column (charts), the group column (treemap),
@@ -114,7 +58,7 @@ class Visual:
               `value`+`agg` (charts/card/gauge/kpi/matrix/treemap)
     x/y/size- scatter measures (X, Y, bubble Size); aggregated by `agg`
     trend   - KPI trend-axis column
-    series  - optional Series breakdown column (stacked charts)
+    series  - optional Series breakdown column (see `_SERIES_KINDS`)
     title   - an optional title
     pos     - an optional position (x, y, w, h)
     """
@@ -142,13 +86,35 @@ class Visual:
                 raise ValueError(
                     f"visual '{self.kind}' requires one of: {', '.join(group)}"
                 )
+        if self.series and self.kind not in _SERIES_KINDS:
+            # Dropping it would build a chart whose legend silently disappears.
+            raise ValueError(
+                f"visual '{self.kind}' has no Series role; "
+                f"kind must be one of: {', '.join(sorted(_SERIES_KINDS))}"
+            )
+
+
+def _required(value: str | None, kind: str, field: str) -> str:
+    """Narrow a required column to `str`, failing loudly when it is missing.
+
+    `Visual` is a mutable dataclass: `__post_init__` validates the initial
+    state, but a field can be cleared afterwards. Returning `str | None` into
+    the query builders used to be a mypy-only complaint, yet at runtime a
+    `None` produced `Sum(table.None)`/a dropped projection - a visual that
+    renders blank with no diagnostic. Raising keeps the failure next to the
+    descriptor that caused it.
+    """
+    if not value:
+        raise ValueError(f"visual '{kind}': {field} column is missing")
+    return value
 
 
 def _visual_config(v: Visual) -> dict:
     """Assemble the config of one visualContainer from a Visual description.
 
     It always builds `projections` - without them Power BI does not bind the
-    fields and the visual renders empty.
+    fields and the visual renders empty. A required field that is `None` raises
+    `ValueError` instead of producing a silently partial visual.
     """
     src = _src()
     select: list[dict] = []
@@ -174,7 +140,7 @@ def _visual_config(v: Visual) -> dict:
         """The value role: an explicit measure, else `value` aggregated by `agg`."""
         if v.measure:
             return add_measure(v.measure)
-        return add_agg(v.value)
+        return add_agg(_required(v.value, v.kind, "value"))
 
     if v.kind == "table":
         projections["Values"] = [{"queryRef": add_column(n)} for n in v.columns]
@@ -187,9 +153,9 @@ def _visual_config(v: Visual) -> dict:
         if v.trend:
             projections["TrendLine"] = [{"queryRef": add_column(v.trend)}]
     elif v.kind == "slicer":
-        qref = add_column(v.axis)
-        projections["Values"] = [{"queryRef": qref, "active": True}]
-        order.append({"Direction": 1, "Expression": _col_ref(src, v.axis)})
+        axis = _required(v.axis, v.kind, "axis")
+        projections["Values"] = [{"queryRef": add_column(axis), "active": True}]
+        order.append({"Direction": 1, "Expression": _col_ref(src, axis)})
     elif v.kind == "matrix":
         row_refs = []
         for d in v.columns:
@@ -200,20 +166,24 @@ def _visual_config(v: Visual) -> dict:
         if v.value:
             projections["Values"] = [{"queryRef": add_value()}]
     elif v.kind == "treemap":
-        projections["Group"] = [{"queryRef": add_column(v.axis)}]
+        axis = _required(v.axis, v.kind, "group")
+        projections["Group"] = [{"queryRef": add_column(axis)}]
         projections["Values"] = [{"queryRef": add_value()}]
     elif v.kind == "scatter":
-        projections["X"] = [{"queryRef": add_agg(v.x or v.value)}]
-        projections["Y"] = [{"queryRef": add_agg(v.y or v.axis)}]
+        x_col = _required(v.x or v.value, v.kind, "x")
+        y_col = _required(v.y or v.axis, v.kind, "y")
+        projections["X"] = [{"queryRef": add_agg(x_col)}]
+        projections["Y"] = [{"queryRef": add_agg(y_col)}]
         if v.size:
             projections["Size"] = [{"queryRef": add_agg(v.size)}]
     else:  # category charts (incl. stacked with optional Series)
-        axis_ref = add_column(v.axis)
+        axis = _required(v.axis, v.kind, "category")
+        axis_ref = add_column(axis)
         val_ref = add_value()
-        order.append({"Direction": 1, "Expression": _col_ref(src, v.axis)})
+        order.append({"Direction": 1, "Expression": _col_ref(src, axis)})
         projections["Category"] = [{"queryRef": axis_ref}]
         projections["Y"] = [{"queryRef": val_ref}]
-        if v.series and v.kind in _SERIES_CHARTS:
+        if v.series:  # `__post_init__` guarantees the kind supports Series
             projections["Series"] = [{"queryRef": add_column(v.series)}]
 
     objects = {}

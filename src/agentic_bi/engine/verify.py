@@ -7,8 +7,9 @@ installed).
 
 This module is a **facade** over focused submodules:
     engine/verify_core.py    - CheckResult / VerifyReport + shared helpers
-    engine/verify_checks.py  - container/layout/bindings/filters/model-data checks
-    engine/verify_brand.py   - report-theme extraction + brand-style comparison
+    engine/verify_checks.py   - container/layout/bindings/model-data checks
+    engine/verify_filters.py  - page/visual filter-safety checks
+    engine/verify_brand.py    - report-theme extraction + brand-style comparison
 
 Public API:
     CheckResult           - the result of one check
@@ -22,9 +23,11 @@ Public API:
     verify_brand(pbix, theme=None, strict=False) -> list[CheckResult]
     verify_pbix(pbix, spec, pages=None, strict=True, sample=50) -> VerifyReport
 
-Regression guard: visual/page-level filters of the form `column IN (...)`
-crash the pivot serializer on expand (`visitIn`/`serializeAll`), so
-`verify_safe_filters` treats such filters as an error.
+Regression guard: an unresolvable `column IN (...)` filter (a dangling
+`SourceRef.Source`, or an `In` with neither `Values` nor `Table`) crashes the
+pivot serializer on expand (`visitIn`/`serializeAll`), so `verify_safe_filters`
+treats it as an error. Desktop's inline-`Values` and Top-N `Table` subquery
+filters are accepted.
 
 The final element-verification stage includes a **comparison with the brand
 style** (`brand.py`): fonts, colors (palette, mandatory accent, at least 2
@@ -46,7 +49,6 @@ from agentic_bi.engine.verify_checks import (
     verify_container,
     verify_layout,
     verify_model_data,
-    verify_safe_filters,
 )
 from agentic_bi.engine.verify_core import (
     CheckResult,
@@ -54,6 +56,7 @@ from agentic_bi.engine.verify_core import (
     load_layout,
     spec_objects,
 )
+from agentic_bi.engine.verify_filters import verify_safe_filters
 
 
 def verify_pbix(
