@@ -34,7 +34,10 @@ Implementation is split across mixins for readability:
 from __future__ import annotations
 
 import logging
+import re
+import shutil
 from pathlib import Path
+from typing import Any
 
 from agentic_bi.lineage.lineage_export import ExportMixin
 from agentic_bi.lineage.lineage_model import ModelMixin
@@ -69,6 +72,7 @@ class PbiLineage(ModelMixin, SourceMixin, QueryMixin, ExportMixin, PlantUmlMixin
 
     # Technical tables (DateTable / LocalDateTable), created by Power BI
     _TECH_PREFIXES = ("DateTableTemplate_", "LocalDateTable_")
+    _brand_summary: dict[str, Any]
 
     def __init__(
         self,
@@ -83,7 +87,7 @@ class PbiLineage(ModelMixin, SourceMixin, QueryMixin, ExportMixin, PlantUmlMixin
         self.display_aliases = display_aliases or {}
         self.origins = load_origins(origins)
         self._brand_cfg = _load_brand_config(brand_config)
-        self._brand_cache: dict | None = None
+        self._brand_cache = None
         self._pu_seen: set[str] = set()
         self._pu_ids: dict[tuple[str, str], str] = {}
         self._unresolved_table_refs: set[str] = set()
@@ -121,11 +125,37 @@ from agentic_bi.lineage.lineage_origins import load_origins  # noqa: E402
 # --------------------------------------------------------------------------- #
 #  CLI
 # --------------------------------------------------------------------------- #
+def _has_diagram_body(puml_text: str) -> bool:
+    """True when the source has a case-sensitive, non-empty diagram block.
+
+    Mirrors the renderer: lower-case ``@startuml`` and ``@enduml`` on their own
+    lines, end after start, non-blank body. ``@STARTUML``, an end before a start,
+    or ``@startuml@enduml`` is not a diagram, so both CLI paths agree.
+    """
+    blocks = re.findall(r"(?ms)^[ \t]*@startuml\b(.*?)^[ \t]*@enduml\b", puml_text)
+    return any(block.strip() for block in blocks)
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI: lineage JSON/Excel/Markdown plus optional PlantUML artifacts.
+
+    Diagram work runs **before** any export, so a run either publishes the whole
+    requested set or stops on the first failing artifact with a non-zero code and
+    empty stdout. That keeps two promises that used to conflict: stdout carries a
+    JSON document only on exit 0 (a machine consumer never sees a payload next to
+    a failure code), and the exit code describes the run as a whole, not just the
+    export half of it.
+    """
     import argparse
     import json as _json
+    import sys
 
-    from agentic_bi.cli_support import run_boundary
+    from agentic_bi.cli_support import (
+        EXIT_BAD_INPUT,
+        EXIT_FAILED,
+        EXIT_OK,
+        run_boundary,
+    )
 
     parser = argparse.ArgumentParser(
         prog="agentic-bi-lineage",
@@ -143,7 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--print-json",
         action="store_true",
-        help="print the JSON analysis to stdout (instead of saving)",
+        help="print the JSON analysis to stdout instead of writing the JSON, "
+        "Excel and Markdown files; stdout stays empty when diagram checks fail "
+        "(--plantuml/--plantuml-png artifacts are still written)",
     )
     parser.add_argument(
         "--out-dir",
@@ -163,7 +195,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--plantuml",
         action="store_true",
-        help="add the PlantUML diagram to the JSON 'plantuml' key",
+        help="save the PlantUML diagram to <out-dir>/lineage.puml "
+        "(the JSON 'plantuml' key is always written)",
+    )
+    parser.add_argument(
+        "--plantuml-png",
+        action="store_true",
+        help="render the diagram to <out-dir>/lineage.png "
+        "(implies --plantuml; needs PLANTUML_JAR and Java)",
     )
     parser.add_argument(
         "--brand-config",
@@ -174,6 +213,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     def body() -> int:
+        def notice(*parts: object) -> None:
+            """Progress line; goes to stderr in ``--print-json`` mode.
+
+            ``--print-json`` promises machine-readable stdout, so export notices
+            must not interleave with the JSON document there.
+            """
+            print(*parts, file=sys.stderr if args.print_json else sys.stdout)
+
         aliases = {}
         for a in args.alias:
             if "=" in a:
@@ -183,12 +230,56 @@ def main(argv: list[str] | None = None) -> int:
         out_dir = (
             Path(args.out_dir) if args.out_dir else Path("output_files") / "pbi_lineage"
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
+        # The directory is created by whichever writer needs it: --print-json with
+        # no diagram artifact must work in a read-only working directory.
 
         with PbiLineage(args.pbix, aliases, brand_config=args.brand_config) as lg:
-            # main output - the structured JSON
+            if args.plantuml or args.plantuml_png:
+                from agentic_bi.report import plantuml_tools
+
+                puml_text = lg.to_plantuml()
+                if not _has_diagram_body(puml_text):
+                    # Writing an empty or unterminated .puml would look like a
+                    # valid artifact: a requested diagram that is absent is a
+                    # failed run, not a success with an empty file.
+                    print(
+                        "PlantUML source is empty or has no @startuml/@enduml block",
+                        file=sys.stderr,
+                    )
+                    return EXIT_FAILED
+                puml_path = plantuml_tools.export_puml(
+                    puml_text, out_dir / "lineage.puml"
+                )
+                notice("PlantUML export:", puml_path)
+                if args.plantuml_png:
+                    # A missing jar or Java is a configuration problem, so it is
+                    # reported before any render attempt and maps to bad input.
+                    if (
+                        not plantuml_tools.find_plantuml_jar()
+                        or shutil.which("java") is None
+                    ):
+                        print(
+                            "PlantUML PNG not rendered: no plantuml.jar configured "
+                            "(set PLANTUML_JAR or PLANTUML_JAR_DIR) or Java missing "
+                            "from PATH",
+                            file=sys.stderr,
+                        )
+                        return EXIT_BAD_INPUT
+                    # One JVM run: its own diagnostic covers both a syntax error
+                    # and a render failure, so validate_text is not called here.
+                    png, diagnostic = plantuml_tools.render_png_ex(
+                        puml_text, out_dir, name="lineage"
+                    )
+                    if png is None:
+                        print(
+                            f"PlantUML PNG not rendered: {diagnostic}",
+                            file=sys.stderr,
+                        )
+                        return EXIT_FAILED
+                    notice("PlantUML PNG export:", png)
             if args.print_json:
-                # JSON to stdout (minimal object; plantuml per flag)
+                # stdout carries the JSON only; the JSON/Excel/Markdown files are
+                # skipped on purpose so this mode cannot be confused with an export.
                 print(_json.dumps(lg.to_json(), ensure_ascii=False, indent=2))
             else:
                 if not args.no_json:
@@ -206,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.no_md:
                     p = lg.export_markdown(out_dir / "REPORT.md")
                     print("Markdown export:", p)
-        return 0
+        return EXIT_OK
 
     return run_boundary(body, prog="agentic-bi-lineage")
 

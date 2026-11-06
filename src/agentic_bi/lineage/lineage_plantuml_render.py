@@ -11,9 +11,10 @@ from agentic_bi.lineage.lineage_origins import (
     ORIGIN_STAGE_COLORS,
     ORIGIN_STAGE_LABEL,
 )
+from agentic_bi.lineage.lineage_state import LineageState
 
 
-def render_plantuml_from_data(ctx, data: dict) -> str:
+def render_plantuml_from_data(ctx: LineageState, data: dict) -> str:
     """Build the PlantUML diagram from the lineage JSON structure (`to_json()`).
 
     Layers, left to right:
@@ -27,6 +28,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
         7. Elements and palette by page
 
     Args:
+        ctx: the lineage instance (node-id registry and PlantUML helpers).
         data: a dict in the `to_json()` structure (origin/sources/tables/...).
 
     Returns:
@@ -84,7 +86,7 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
 
         # nested sub-stage chain: SOURCE -> PROCESSING -> LOAD
         out.append(f'  package "{ctx._pu_escape(label)}\\n{cat_label}" {{')
-        prev = None
+        stage_ids: list[str] = []
         for si, st in enumerate(stages):
             stage = st.get("stage", "")
             slab = ORIGIN_STAGE_LABEL.get(stage, stage.upper())
@@ -92,10 +94,12 @@ def render_plantuml_from_data(ctx, data: dict) -> str:
             sid = ctx._pu_id("O", f"{okey}:{stage}:{si}")
             scol = ORIGIN_STAGE_COLORS.get(stage, color)
             out.append(f"    [**{ctx._pu_escape(slbl)}**] as {sid} {scol}")
-            if prev is not None:
-                out.append(f"    {prev} --> {sid}")
-            prev = sid
-        origin_nodes[okey] = prev  # the last sub-stage feeds layer-2 sources
+            if stage_ids:
+                out.append(f"    {stage_ids[-1]} --> {sid}")
+            stage_ids.append(sid)
+        # `stages` is non-empty here (the empty case continued above), so the
+        # chain always ends in a node: the last sub-stage feeds layer-2 sources.
+        origin_nodes[okey] = stage_ids[-1]
         out.append("  }")
     out.append("}")
 

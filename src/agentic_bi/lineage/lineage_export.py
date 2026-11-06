@@ -17,17 +17,19 @@ import logging
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from agentic_bi.lineage.lineage_export_data import build_lineage_data
+from agentic_bi.lineage.lineage_state import LineageState
 from agentic_bi.lineage.lineage_types import Source, _brand_level_ru
 
 logger = logging.getLogger(__name__)
 
 
 class ExportMixin:
-    def print_summary(self) -> None:
+    def print_summary(self: LineageState) -> None:
         """A short console summary."""
         print(f"File: {self.pbix_path.name}")
         print(f"Pages: {self.page_count}, visuals: {self.visual_count}")
@@ -76,7 +78,7 @@ class ExportMixin:
             if s.get("error_pages"):
                 print(f"  violations: {', '.join(s['error_pages'])}")
 
-    def export_excel(self, out_path: str | Path) -> Path:
+    def export_excel(self: LineageState, out_path: str | Path) -> Path:
         """Save pages/visuals/tables to xlsx (3 sheets)."""
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +88,7 @@ class ExportMixin:
             self.tables_dataframe.to_excel(writer, sheet_name="tables", index=False)
         return out
 
-    def export_markdown(self, out_path: str | Path) -> Path:
+    def export_markdown(self: LineageState, out_path: str | Path) -> Path:
         """Save a human-readable lineage report to Markdown."""
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -158,7 +160,7 @@ class ExportMixin:
         out.write_text(text, encoding="utf-8")
         return out
 
-    def to_json(self, include_plantuml: bool = True) -> dict:
+    def to_json(self: LineageState, include_plantuml: bool = True) -> dict[str, Any]:
         """The full structured lineage model (a dict ready for serialization).
 
         Single source of truth: the PlantUML diagram is built from this same dict
@@ -171,7 +173,7 @@ class ExportMixin:
         """
         return build_lineage_data(self, include_plantuml=include_plantuml)
 
-    def export_json(self, out_path: str | Path) -> Path:
+    def export_json(self: LineageState, out_path: str | Path) -> Path:
         """Save the full lineage structure to JSON (from `to_json()`)."""
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)

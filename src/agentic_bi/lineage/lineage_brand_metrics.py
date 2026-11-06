@@ -20,96 +20,75 @@ Neutral colors (R==G==B) are not violations. The primary accent is recognized wi
 
 Public API:
     page_brand_metrics(page, cfg=None)  -> dict  - metrics of one page
+    visual_brand_metrics(visual, cfg=None) -> dict - metrics of one visual
     brand_audit_pages(pages, cfg=None)  -> dict  - metrics of all pages + summary
     brand_label(metrics)                -> str   - a string for PlantUML/report
+
+Token, config and finding primitives are owned by
+:mod:`agentic_bi.lineage.lineage_brand_primitives`.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+
+from agentic_bi.lineage.lineage_brand_primitives import (
+    _PLACEHOLDER_FONTS,
+    _allow_extra,
+    _clean_fonts,
+    _finding,
+    _hex_from,
+    _is_neutral,
+    _load_config,
+    _pct,
+)
 
 _log = logging.getLogger(__name__)
 
-# Font placeholders in the visual config (not real fonts).
-_PLACEHOLDER_FONTS = {"+mn-lt", "+mj-lt", "+mn-ea", "+mj-ea", "themefont", ""}
+__all__ = [
+    "_LEVEL_ORDER",
+    "_log",
+    "_PLACEHOLDER_FONTS",
+    "_allow_extra",
+    "_clean_fonts",
+    "_finding",
+    "_hex_from",
+    "_is_neutral",
+    "_load_config",
+    "_pct",
+    "brand_audit_pages",
+    "brand_label",
+    "page_brand_metrics",
+    "visual_brand_metrics",
+]
 
 
-def _load_config():
-    """Lazy import of `BrandConfig` (no hard dependency) + YAML load."""
-    pkg_dir = Path(__file__).resolve().parents[1]
-    from agentic_bi.brand.config import BrandConfig  # type: ignore
-
-    yaml_path = pkg_dir / "brand_config.yaml"
-    if yaml_path.exists():
-        try:
-            return BrandConfig.load(yaml_path)
-        except Exception as exc:  # noqa: BLE001 - config optional, default() exists
-            _log.debug("brand_config.yaml load failed: %s", exc)
-    return BrandConfig.default()
+# Size exception (>300 lines): page and visual metrics share one palette/font
+# evaluation; splitting them duplicated the rules and they drifted once already.
 
 
-def _hex_from(token: str) -> str:
-    """Extract '#rrggbb' from a lineage token ('hex#D32F2F', 'theme#0')."""
-    if not token or not isinstance(token, str):
-        return ""
-    i = token.find("#")
-    if i < 0:
-        return ""
-    v = token[i + 1 :].strip()
-    if len(v) >= 6:
-        v = v[:6]
-    if len(v) != 6:
-        return ""
-    try:
-        int(v, 16)
-    except ValueError:
-        return ""
-    return "#" + v.lower()
+def _split_colors(tokens: object) -> tuple[set[str], int]:
+    """Resolve colour tokens into hex values; count the ones that stay unresolved.
 
-
-def _is_neutral(hex_color: str) -> bool:
-    h = hex_color.lstrip("#")
-    return h[0:2] == h[2:4] == h[4:6]
-
-
-def _clean_fonts(fonts: list[str] | None) -> list[str]:
-    seen: list[str] = []
-    for f in fonts or []:
-        name = str(f).replace("\ufffd", "").strip()
-        if name.lower() in _PLACEHOLDER_FONTS:
+    `_collect_colors` emits `theme#<ColorId>` for a `ThemeDataColor` reference,
+    and the theme itself is not part of the lineage JSON, so those ids cannot be
+    turned into hex here. They used to be discarded silently: a page whose only
+    colours were theme tokens reported `colors.total = 0`, `compliance = None`
+    and — because a compliant font was enough — `level = "ok"`, i.e. "verified
+    clean" for data that were never read. Counting them lets the caller say
+    "no colour data" instead.
+    """
+    raw: set[str] = set()
+    unresolved = 0
+    for token in tokens if isinstance(tokens, (list, tuple, set)) else []:
+        if not isinstance(token, str):
             continue
-        if name and name not in seen:
-            seen.append(name)
-    return seen
-
-
-def _pct(part: int, total: int) -> int | None:
-    if total <= 0:
-        return None
-    return round(100 * part / total)
-
-
-def _allow_extra(cfg) -> set[str]:
-    """Normalize the config's `allow_extra` to lowercase '#rrggbb' (case-insensitive)."""
-    out = set()
-    for c in getattr(cfg, "allow_extra", []) or []:
-        h = _hex_from(str(c)) or (str(c) if str(c).startswith("#") else "")
-        if h:
-            out.add(h.lower())
-    return out
-
-
-def _finding(
-    rule_id: str, level: str, category: str, message: str, detail: str = ""
-) -> dict:
-    return {
-        "rule_id": rule_id,
-        "level": level,
-        "category": category,
-        "message": message,
-        "detail": detail,
-    }
+        hexv = _hex_from(token)
+        if hexv:
+            raw.add(hexv)
+        elif token.strip():
+            unresolved += 1
+    return raw, unresolved
 
 
 def page_brand_metrics(page: dict, cfg=None) -> dict:
@@ -126,8 +105,7 @@ def page_brand_metrics(page: dict, cfg=None) -> dict:
     if cfg is None:
         cfg = _load_config()
 
-    raw_colors = {_hex_from(c) for c in page.get("colors", [])}
-    raw_colors.discard("")
+    raw_colors, unresolved = _split_colors(page.get("colors"))
     chromatic = sorted(c for c in raw_colors if not _is_neutral(c))
     allow_extra = _allow_extra(cfg)
     off_palette = sorted(
@@ -183,6 +161,10 @@ def page_brand_metrics(page: dict, cfg=None) -> dict:
 
     if not chromatic and not fonts:
         level = "unknown"
+    elif not chromatic and unresolved:
+        # Colours exist but could not be resolved (theme ids): the palette was
+        # not verified, so this page is not "ok".
+        level = "unknown"
     elif any(f["level"] == "error" for f in findings):
         level = "error"
     elif findings:
@@ -203,6 +185,7 @@ def page_brand_metrics(page: dict, cfg=None) -> dict:
             "palette": len(chromatic) - len(off_palette),
             "off": off_palette,
             "has_accent": has_accent,
+            "unresolved": unresolved,
             "compliance": color_compliance,
         },
         "score": score,
@@ -227,8 +210,7 @@ def visual_brand_metrics(visual: dict, cfg=None) -> dict:
     if cfg is None:
         cfg = _load_config()
 
-    raw_colors = {_hex_from(c) for c in visual.get("colors", [])}
-    raw_colors.discard("")
+    raw_colors, unresolved = _split_colors(visual.get("colors"))
     chromatic = sorted(c for c in raw_colors if not _is_neutral(c))
     off_palette = sorted(
         c for c in chromatic if cfg.match(c) is None and c not in _allow_extra(cfg)
@@ -248,6 +230,8 @@ def visual_brand_metrics(visual: dict, cfg=None) -> dict:
     off = [f"color {c}" for c in off_palette] + [f"font {f}" for f in off_fonts]
     if not chromatic and not fonts:
         level = "unknown"
+    elif not chromatic and unresolved:
+        level = "unknown"
     elif chromatic and not has_accent:
         level = "error"
     elif off:
@@ -264,6 +248,7 @@ def visual_brand_metrics(visual: dict, cfg=None) -> dict:
             "total": len(chromatic),
             "off": off_palette,
             "has_accent": has_accent,
+            "unresolved": unresolved,
             "compliance": _pct(len(chromatic) - len(off_palette), len(chromatic)),
         },
         "off": off,
@@ -318,9 +303,16 @@ def brand_label(metrics: dict) -> str:
     c = metrics.get("colors", {})
     fc = f.get("compliance")
     cc = c.get("compliance")
-    lines = [f"Brand: fonts {fc if fc is not None else 'n/a'}%"]
+
+    def _pct(value: object) -> str:
+        return "n/a" if value is None else f"{value}%"
+
+    lines = [f"Brand: fonts {_pct(fc)}"]
     accent = "yes" if c.get("has_accent") else "no"
-    lines.append(f"colors {cc if cc is not None else 'n/a'}% · accent: {accent}")
+    lines.append(f"colors {_pct(cc)} · accent: {accent}")
+    unresolved = c.get("unresolved") or 0
+    if unresolved:
+        lines.append(f"theme colours unresolved: {unresolved}")
     return "\n".join(lines)
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 
+from agentic_bi.lineage.lineage_state import LineageState
 from agentic_bi.lineage.lineage_types import Source
 
 
@@ -40,7 +41,7 @@ left to right direction
 """
     _PU_HEADER = "@startuml lineage_{name}"
 
-    def _pu_escape(self, text: str) -> str:
+    def _pu_escape(self: LineageState, text: str) -> str:
         """Escape special characters for PlantUML node text.
 
         Underscore is NOT escaped (it renders correctly inside a component), and
@@ -61,7 +62,7 @@ left to right direction
             .replace("\n", r"\n")
         )
 
-    def _pu_id(self, prefix: str, name: str) -> str:
+    def _pu_id(self: LineageState, prefix: str, name: str) -> str:
         """A stable unique PlantUML node identifier from a name.
 
         Memoizes the id by (prefix, name) so the declaration and edges reference
@@ -87,7 +88,7 @@ left to right direction
         self._pu_ids[key] = k
         return k
 
-    def _source_group(self, src: Source) -> str:
+    def _source_group(self: LineageState, src: Source) -> str:
         """Determine the source store group/type from the type and details.
 
         Classification by the `type`/`detail` features of the source, extracted
@@ -184,7 +185,7 @@ left to right direction
 
         return "Other sources"
 
-    def to_plantuml(self) -> str:
+    def to_plantuml(self: LineageState) -> str:
         """Generate the data-flow PlantUML diagram (wrapper).
 
         The diagram is built FROM the `to_json()` JSON -> single source `_render_plantuml_from_data`.
@@ -192,7 +193,7 @@ left to right direction
         data = self.to_json(include_plantuml=False)
         return self._render_plantuml_from_data(data)
 
-    def _render_plantuml_from_data(self, data: dict) -> str:
+    def _render_plantuml_from_data(self: LineageState, data: dict) -> str:
         """Build the PlantUML diagram from the lineage JSON structure (`to_json()`)."""
         from agentic_bi.lineage.lineage_plantuml_render import render_plantuml_from_data
 

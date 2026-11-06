@@ -18,18 +18,21 @@ Structure:
     }
 
 Public API:
-    build_lineage_data(model, include_plantuml=True) -> dict
+    build_lineage_data(model: LineageState, include_plantuml=True) -> dict
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
+from typing import Any
 
 from agentic_bi.lineage.lineage_origins import origin_json_block
+from agentic_bi.lineage.lineage_query import PageAnalysis
+from agentic_bi.lineage.lineage_state import LineageState
 
 
-def _summary(model) -> dict:
+def _summary(model: LineageState) -> dict[str, Any]:
     """Analysis metadata + overall counters."""
     return {
         "file": model.pbix_path.name,
@@ -63,9 +66,9 @@ def _summary(model) -> dict:
     }
 
 
-def _sources(model, summary: dict) -> dict:
+def _sources(model: LineageState) -> dict[str, Any]:
     """Table -> source info, plus grouping by store type and unresolved list."""
-    sources_tables = {
+    sources_tables: dict[str, dict[str, Any]] = {
         t: {
             "type": s.type,
             "detail": s.detail,
@@ -76,7 +79,7 @@ def _sources(model, summary: dict) -> dict:
         for t, s in model.sources.items()
         if s.type != "No Power Query"
     }
-    by_group: dict[str, list[dict]] = defaultdict(list)
+    by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for tbl, info in sources_tables.items():
         src = model.sources[tbl]
         by_group[model._source_group(src)].append(
@@ -96,7 +99,7 @@ def _sources(model, summary: dict) -> dict:
     }
 
 
-def _tables(model) -> dict:
+def _tables(model: LineageState) -> dict[str, dict[str, Any]]:
     """Per-table detail: counts, members, source and reference count."""
     return {
         t: {
@@ -121,9 +124,11 @@ def _tables(model) -> dict:
     }
 
 
-def _semantics(model, refs: dict) -> dict:
+def _semantics(
+    model: LineageState, refs: dict[str, Counter[str]]
+) -> dict[str, dict[str, Any]]:
     """Semantics per business table: measures/calc columns and their refs."""
-    semantics = {}
+    semantics: dict[str, dict[str, Any]] = {}
     for t in model.business_tables():
         measures = model.measures.get(t, [])
         calc_cols = model.calc_columns.get(t, [])
@@ -142,12 +147,14 @@ def _semantics(model, refs: dict) -> dict:
     return semantics
 
 
-def _pages(model, brand_pages: dict) -> list[dict]:
+def _pages(
+    model: LineageState, brand_pages: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Per-page detail: visuals, bindings, elements and brand metrics."""
-    analysis = {a["page"]: a for a in model.page_analysis()}
-    pages = []
+    analysis: dict[str, PageAnalysis] = {a["page"]: a for a in model.page_analysis()}
+    pages: list[dict[str, Any]] = []
     for p in model.pages:
-        a = analysis.get(p.name, {})
+        a = analysis.get(p.name)
         n_bindings = sum(len(v.bindings) for v in p.visuals)
         pages.append(
             {
@@ -157,8 +164,8 @@ def _pages(model, brand_pages: dict) -> list[dict]:
                 "n_bindings": n_bindings,
                 "refs": n_bindings,  # total data references on the page
                 "tables": sorted(p.tables),
-                "elements": a.get("elements", {}),
-                "colors": a.get("colors", []),
+                "elements": a["elements"] if a is not None else {},
+                "colors": a["colors"] if a is not None else [],
                 "fonts": model._collect_visual_fonts(p),
                 "brand": brand_pages.get(p.name, {}),
                 "visuals": [
@@ -186,7 +193,9 @@ def _pages(model, brand_pages: dict) -> list[dict]:
     return pages
 
 
-def build_lineage_data(model, include_plantuml: bool = True) -> dict:
+def build_lineage_data(
+    model: LineageState, include_plantuml: bool = True
+) -> dict[str, Any]:
     """Build the full structured lineage dict for `model` (a `PbiLineage`).
 
     Single source of truth: the PlantUML diagram is built from this same dict,
@@ -197,7 +206,7 @@ def build_lineage_data(model, include_plantuml: bool = True) -> dict:
         include_plantuml: whether to embed the 'plantuml' key (built from the dict).
     """
     summary = _summary(model)
-    sources = _sources(model, summary)
+    sources = _sources(model)
     refs = model._resolve_refs()
     # brand-book compliance metrics by page (fonts/colors)
     _bm = model.brand_metrics()
@@ -205,7 +214,7 @@ def build_lineage_data(model, include_plantuml: bool = True) -> dict:
     model._brand_summary = _bm["summary"]
     pages = _pages(model, brand_pages)
 
-    data = {
+    data: dict[str, Any] = {
         "meta": summary,
         "summary": summary,
         "sources": sources,
