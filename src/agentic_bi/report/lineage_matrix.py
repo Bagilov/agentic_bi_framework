@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from agentic_bi.lineage.lineage_origins import ORIGIN_STAGE_LABEL
 from agentic_bi.report.lineage_brand_cols import (
+    as_list,
+    as_mapping,
+    as_rows,
     brand_row,
     page_brand_index,
     visual_brand_row,
@@ -55,9 +58,13 @@ COLUMNS = [
 ]
 
 
-def _blank_row(level: int) -> dict:
-    """A row skeleton for a given level with all level columns empty."""
-    row = {c: "" for c in COLUMNS}
+def _blank_row(level: int) -> dict[str, str | int | float]:
+    """A row skeleton for a given level with all level columns empty.
+
+    A cell holds text, a count (``Level``/``Refs``) or a percentage, so the row
+    type admits all three instead of only the text the skeleton starts with.
+    """
+    row: dict[str, str | int | float] = {c: "" for c in COLUMNS}
     row["Level"] = level
     row["Layer"] = LEVEL[level]
     return row
@@ -73,18 +80,30 @@ def lineage_to_table(data: dict) -> list[dict]:
         List of row dicts keyed by :data:`COLUMNS`.
     """
     rows: list[dict] = []
-    tables = data.get("tables", {})
-    pages = data.get("pages", [])
-    sources = data.get("sources", {})
-    semantics = data.get("semantics", {})
-    origin = data.get("origin", {})
-    src_by_table = sources.get("by_table", {})
+    data = as_mapping(data)
+    # Keys become strings and every value a mapping: a JSON object may hold a
+    # scalar instead of an object, and mixed key types cannot be sorted.
+    tables = {
+        str(key): as_mapping(value)
+        for key, value in as_mapping(data.get("tables")).items()
+    }
+    pages = as_rows(data.get("pages"))
+    sources = as_mapping(data.get("sources"))
+    semantics = {
+        str(key): as_mapping(value)
+        for key, value in as_mapping(data.get("semantics")).items()
+    }
+    origin = as_mapping(data.get("origin"))
+    src_by_table = {
+        str(key): as_mapping(value)
+        for key, value in as_mapping(sources.get("by_table")).items()
+    }
 
     # map "source table -> origin label" (level 1 -> level 2)
     src_to_origin: dict[str, str] = {}
-    for it in origin.get("items", []):
+    for it in as_rows(origin.get("items")):
         olabel = it.get("label") or it.get("key") or "?"
-        for tbl in it.get("tables", []) or []:
+        for tbl in as_list(it.get("tables")):
             src_to_origin[tbl] = olabel
 
     def _sem_label(tbl: str) -> str:
@@ -101,15 +120,16 @@ def lineage_to_table(data: dict) -> list[dict]:
         return f"{tbl}: {', '.join(parts)}" if parts else tbl
 
     # === LEVEL 1: ORIGIN ===
-    for it in origin.get("items", []):
-        okey = it.get("key", "")
-        olabel = it.get("label") or okey
-        cat = it.get("category", "origin-unknown")
-        otables = it.get("tables", []) or []
-        stages = it.get("stages", []) or []
+    for it in as_rows(origin.get("items")):
+        okey = str(it.get("key", ""))
+        olabel = str(it.get("label") or okey)
+        cat = str(it.get("category", "origin-unknown"))
+        otables = as_list(it.get("tables"))
+        stages = as_rows(it.get("stages"))
         chain = " -> ".join(
-            f"{ORIGIN_STAGE_LABEL.get(s.get('stage'), s.get('stage'))}: {s.get('label')}"
+            f"{ORIGIN_STAGE_LABEL.get(stage, stage)}: {s.get('label')}"
             for s in stages
+            for stage in [str(s.get("stage", ""))]
         )
         n_targets = sum(1 for t in otables if t in src_by_table)
         detail = it.get("detail") or ""
@@ -170,7 +190,7 @@ def lineage_to_table(data: dict) -> list[dict]:
     for tbl, tv in tables.items():
         if tv.get("technical"):
             continue
-        src = tv.get("source", {})
+        src = as_mapping(tv.get("source"))
         detail_parts = []
         cols = tv.get("columns_count", 0)
         meas = tv.get("measures_count", 0)
@@ -205,7 +225,11 @@ def lineage_to_table(data: dict) -> list[dict]:
     for tbl, sem in semantics.items():
         nm = len(sem.get("measures", []))
         nc = len(sem.get("calc_columns", []))
-        using_pages = [p["name"] for p in pages if tbl in p.get("tables", [])]
+        using_pages = [
+            str(p.get("name", "?"))
+            for p in pages
+            if tbl in [str(item) for item in as_list(p.get("tables"))]
+        ]
         row = _blank_row(5)
         row.update(
             {
@@ -223,8 +247,8 @@ def lineage_to_table(data: dict) -> list[dict]:
 
     # === LEVEL 6: PAGES ===
     for p in pages:
-        name = p["name"]
-        tables_on_page = p.get("tables", [])
+        name = str(p.get("name", "?"))
+        tables_on_page = as_list(p.get("tables"))
         n_vis = p.get("n_visuals", 0)
         from_label = (
             ", ".join(_sem_label(t) for t in tables_on_page) if tables_on_page else ""
@@ -245,23 +269,24 @@ def lineage_to_table(data: dict) -> list[dict]:
 
     # === LEVEL 7: VISUALS ===
     for p in pages:
-        for vis in p.get("visuals", []):
-            vtype = vis.get("type", "?")
+        for vis in as_rows(p.get("visuals")):
+            vtype = str(vis.get("type", "?"))
             z = vis.get("z", "")
             bindings = "; ".join(
-                f"{b.get('role')}={b.get('queryRef')}" for b in vis.get("bindings", [])
+                f"{b.get('role')}={b.get('queryRef')}"
+                for b in as_rows(vis.get("bindings"))
             )
-            colors = len(vis.get("colors", []))
+            colors = len(as_list(vis.get("colors")))
             row = _blank_row(7)
             row.update(
                 {
-                    "L6 · Page": p["name"],
-                    "L7 · Visual": f"{p['name']} · {vtype} z={z}",
-                    "Parent": p["name"] if p.get("visuals") else "",
+                    "L6 · Page": p.get("name", "?"),
+                    "L7 · Visual": f"{p.get('name', '?')} · {vtype} z={z}",
+                    "Parent": p.get("name", "?") if p.get("visuals") else "",
                     "Type": vtype,
                     "Detail / Source": bindings,
                     "Refs": vis.get("n_bindings", 0),
-                    "Came from": ", ".join(p.get("tables", [])),
+                    "Came from": ", ".join(as_list(p.get("tables"))),
                     "Goes to": f"{colors} colors" if colors else "",
                 }
             )
@@ -278,7 +303,7 @@ def lineage_to_table(data: dict) -> list[dict]:
                 continue  # keep element metrics, do not overwrite with page metrics
             metrics = brand_index.get(r.get("L6 · Page", ""))
             r.update(brand_row(metrics) if metrics else empty)
-        summary = (data.get("brand") or {}).get("summary", {})
+        summary = as_mapping(as_mapping(data.get("brand")).get("summary"))
         if summary and rows:
             base = rows[0]
             fc, cc = summary.get("fonts_compliance"), summary.get("colors_compliance")

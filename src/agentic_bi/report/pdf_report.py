@@ -20,98 +20,35 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from reportlab.lib.pagesizes import A3, A4, landscape, portrait
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.pagesizes import A4, landscape, portrait
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate
 
 from agentic_bi.report.lineage_matrix import lineage_to_table
 from agentic_bi.report.pdf_diagram import diagram_story
+from agentic_bi.report.pdf_style import (
+    _FONT_CANDIDATES,
+    _PAGE_SIZES,
+    _page_footer,
+    _resolve_fonts,
+    _safe,
+    _styles,
+)
 from agentic_bi.report.pdf_tables import brand_issues, brand_scorecard, lineage_matrix
-from agentic_bi.report.plantuml_tools import find_plantuml_jar
 
 logger = logging.getLogger(__name__)
 
-_PAGE_SIZES = {"A4": A4, "A3": A3}
-
-# Common Unicode font locations, tried when REPORT_PDF_FONT is not set.
-_FONT_CANDIDATES = [
-    (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ),
-    ("/Library/Fonts/Arial Unicode.ttf", "/Library/Fonts/Arial Bold.ttf"),
-    ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
-    ("C:/Windows/Fonts/DejaVuSans.ttf", "C:/Windows/Fonts/DejaVuSans-Bold.ttf"),
+__all__ = [
+    "_FONT_CANDIDATES",
+    "_PAGE_SIZES",
+    "_page_footer",
+    "_plantuml_for",
+    "_resolve_fonts",
+    "_safe",
+    "_styles",
+    "build_report",
+    "main",
 ]
-
-
-def _resolve_fonts(font_ttf: str | None = None) -> tuple[str, str]:
-    """Register a Unicode TTF when available; fall back to Helvetica."""
-    import os
-
-    regular = font_ttf or os.getenv("REPORT_PDF_FONT")
-    candidates = []
-    if regular:
-        candidates.append((regular, regular))
-    candidates.extend(_FONT_CANDIDATES)
-    for reg, bold in candidates:
-        if reg and Path(reg).exists():
-            try:
-                pdfmetrics.registerFont(TTFont("ReportFont", reg))
-                if bold and Path(bold).exists():
-                    pdfmetrics.registerFont(TTFont("ReportFont-Bold", bold))
-                    return "ReportFont", "ReportFont-Bold"
-                return "ReportFont", "ReportFont"
-            except Exception as exc:  # noqa: BLE001 - fall back on any font error
-                logger.warning("font %s rejected: %s", reg, exc)
-    return "Helvetica", "Helvetica-Bold"
-
-
-def _styles(regular: str, bold: str) -> dict:
-    normal = getSampleStyleSheet()["Normal"]
-    return {
-        "Title": ParagraphStyle(
-            "TitleX",
-            parent=normal,
-            fontName=bold,
-            fontSize=20,
-            leading=24,
-            spaceAfter=4 * mm,
-        ),
-        "Heading2": ParagraphStyle(
-            "Heading2X",
-            parent=normal,
-            fontName=bold,
-            fontSize=13,
-            leading=16,
-            spaceAfter=2 * mm,
-        ),
-        "Body": ParagraphStyle(
-            "BodyX", parent=normal, fontName=regular, fontSize=9, leading=12
-        ),
-        "Cell": ParagraphStyle(
-            "CellX", parent=normal, fontName=regular, fontSize=6.5, leading=8
-        ),
-        "CellHead": ParagraphStyle(
-            "CellHeadX",
-            parent=normal,
-            fontName=bold,
-            fontSize=6.5,
-            leading=8,
-            textColor="#FFFFFF",
-        ),
-    }
-
-
-def _page_footer(canvas, doc) -> None:
-    canvas.saveState()
-    canvas.setFont("Helvetica", 7)
-    canvas.setFillColor("#666666")
-    canvas.drawRightString(doc.pagesize[0] - 10 * mm, 8 * mm, f"Page {doc.page}")
-    canvas.restoreState()
 
 
 def build_report(
@@ -143,6 +80,7 @@ def build_report(
         include_visuals: include level 7 (visuals) in the matrix.
         with_diagram: render and embed the PlantUML diagram.
     """
+    data = _mapping(data)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     size = _PAGE_SIZES.get(page_size.upper(), A4)
@@ -155,31 +93,37 @@ def build_report(
     regular, bold = _resolve_fonts(font_ttf)
     styles = _styles(regular, bold)
 
-    summary = data.get("summary") or {}
-    meta = data.get("meta") or {}
+    summary = _mapping(data.get("summary"))
+    meta = _mapping(data.get("meta"))
     story: list = [Paragraph(_safe(title), styles["Title"])]
     subtitle = source_name or meta.get("file") or ""
     if subtitle:
         story.append(Paragraph(_safe(subtitle), styles["Body"]))
+    counters = " · ".join(
+        f"{label}: {_safe(summary.get(key, ''))}"
+        for key, label in (
+            ("visuals", "visuals"),
+            ("tables", "tables"),
+            ("measures", "measures"),
+        )
+    )
     story.append(
         Paragraph(
             f"Generated: {datetime.now():%Y-%m-%d %H:%M}. "
-            f"Pages: {summary.get('pages', len(data.get('pages', [])) or 0)}, "
-            f"visuals: {summary.get('visuals', '')}, "
-            f"tables: {summary.get('tables', '')}, "
-            f"measures: {summary.get('measures', '')}.",
+            f"Pages: {_page_count(data, summary)}. {counters}",
             styles["Body"],
         )
     )
 
-    if with_diagram and plantuml.strip():
+    if with_diagram:
+        # Always draw the diagram section when it was requested: `diagram_story`
+        # already explains a missing source ("No diagram provided.") and an
+        # unavailable jar ("Diagram not rendered ..."). The earlier guard tested
+        # `summary["plantuml_available"]`, a key nothing in the package ever
+        # writes, so the note was dead code and a requested diagram silently
+        # vanished from the PDF.
         story.append(PageBreak())
         story.extend(diagram_story(plantuml, content_w, content_h, styles))
-
-    if summary.get("plantuml_available") is False:
-        story.append(
-            Paragraph("plantuml.jar not found; diagram omitted.", styles["Body"])
-        )
 
     story.extend(brand_scorecard(data, styles, content_w))
 
@@ -210,8 +154,23 @@ def build_report(
     return out
 
 
-def _safe(text: str) -> str:
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def _mapping(value: object) -> dict:
+    """A JSON object from the lineage document; anything else is empty.
+
+    The input is untrusted (a hand-edited or tool-generated `lineage.json`), so a
+    list-typed `summary`/`meta` must degrade to "no summary" instead of aborting
+    the whole report on `.get`.
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def _page_count(data: dict, summary: dict) -> object:
+    """The page number printed in the header: explicit, else the page list length."""
+    explicit = summary.get("pages")
+    if isinstance(explicit, int) and not isinstance(explicit, bool):
+        return explicit
+    pages = data.get("pages")
+    return len(pages) if isinstance(pages, list) else 0
 
 
 def _plantuml_for(src: Path, data: dict) -> str:
@@ -273,7 +232,11 @@ def main(argv: list[str] | None = None) -> int:
 
         data = load_json(args.input)
         plantuml = ""
-        if not args.no_diagram and find_plantuml_jar():
+        if not args.no_diagram:
+            # The source needs no jar: it comes from the `.pbix`, the JSON block
+            # or a sibling `.puml`. Gating on `find_plantuml_jar()` here dropped
+            # those sources entirely, and the PDF then said nothing about the
+            # missing diagram.
             try:
                 plantuml = _plantuml_for(Path(args.input), data)
             except Exception as exc:  # noqa: BLE001 - diagram is best-effort
