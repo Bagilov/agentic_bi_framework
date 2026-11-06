@@ -43,9 +43,33 @@ def load_layout(pbix: str | Path) -> dict:
     A layout whose top level is not an object (a bare list or scalar) is
     untrusted and yields an empty mapping, so callers can walk it without a
     guard of their own.
+
+    Raises:
+        ValueError: when the file is missing, is not a zip archive, has no
+            `Report/Layout` member, or that member is not decodable JSON. A
+            `.pbix` is a user input, so every one of these must reach the CLI
+            boundary as a short message naming the file (exit 2), not as a
+            `BadZipFile`/`KeyError` traceback.
     """
-    with zipfile.ZipFile(pbix) as z:
-        return as_dict(decode_layout(z.read("Report/Layout")))
+    path = Path(pbix)
+    try:
+        with zipfile.ZipFile(path) as archive:
+            raw = archive.read("Report/Layout")
+    except FileNotFoundError as exc:
+        raise ValueError(f"{path}: file not found (expected a .pbix)") from exc
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            f"{path}: not a .pbix (zip) archive, so it has no Report/Layout"
+        ) from exc
+    except KeyError as exc:
+        raise ValueError(
+            f"{path}: archive has no Report/Layout member (not a Power BI report)"
+        ) from exc
+    try:
+        layout = decode_layout(raw)
+    except ValueError as exc:
+        raise ValueError(f"{path}: Report/Layout is not valid JSON ({exc})") from exc
+    return as_dict(layout)
 
 
 def is_hidden(section: Any) -> bool:

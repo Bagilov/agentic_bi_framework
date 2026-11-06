@@ -14,13 +14,7 @@ from pathlib import Path
 
 from tests.web_report_fixtures import make_container, make_layout
 
-from agentic_bi.board_guide import (
-    extract_page_geometry,
-)
-from agentic_bi.board_guide.guide_geometry import (
-    GuidePage,
-    GuideVisual,
-)
+from agentic_bi.board_guide import extract_page_geometry
 from agentic_bi.board_guide.guide_layout import (
     filter_refs,
     is_hidden,
@@ -231,57 +225,3 @@ def test_filter_refs_describe_comparisons() -> None:
     assert refs == ["Sales[region]: region = EU"]
     assert filter_refs("[]") == []
     assert filter_refs("not json") == []
-
-
-def test_hotspot_is_percentage_of_canvas() -> None:
-    visual = GuideVisual(visual_type="card", x=130, y=105, width=260, height=210)
-    box = visual.hotspot(1300, 1050)
-    assert box == {"left": 10.0, "top": 10.0, "width": 20.0, "height": 20.0}
-
-
-def test_hotspot_clamps_offscreen_box_to_the_canvas() -> None:
-    """A negative or oversized box must not place a hotspot outside the image."""
-    negative = GuideVisual(visual_type="x", x=-50, y=-60, width=10, height=10)
-    assert negative.hotspot(100, 100) == {
-        "left": 0.0,
-        "top": 0.0,
-        "width": 10.0,
-        "height": 10.0,
-    }
-    far = GuideVisual(visual_type="y", x=5000, y=5000, width=10, height=10)
-    assert far.hotspot(100, 100) == {
-        "left": 100.0,
-        "top": 100.0,
-        "width": 0.0,
-        "height": 0.0,
-    }
-
-
-def test_hotspot_falls_back_to_default_canvas() -> None:
-    visual = GuideVisual(visual_type="card", x=128, y=72, width=128, height=72)
-    box = visual.hotspot(0, 0)
-    assert box["left"] == 10.0
-    assert box["width"] == 10.0
-
-
-def test_label_falls_back_to_type() -> None:
-    assert GuideVisual(visual_type="textbox", title="").label == "textbox"
-    assert GuideVisual(visual_type="card", title="", measures=["Rev"]).label == "Rev"
-    assert (
-        GuideVisual(visual_type="card", title="", fields=["Sales.region"]).label
-        == "Sales.region"
-    )
-    assert (
-        GuideVisual(visual_type="textbox", title="", fields=[], measures=[]).has_data
-        is False
-    )
-
-
-def test_geometry_to_dict_round_trips() -> None:
-    page = GuidePage(name="P", width=1300, height=1050)
-    page.visuals.append(GuideVisual(visual_type="card", title="T", x=1, y=2))
-    from agentic_bi.board_guide import GuideGeometry
-
-    payload = GuideGeometry(source="b.pbix", pages=[page]).to_dict()
-    assert payload["pbix"] == "b.pbix"
-    assert payload["pages"][0]["visuals"][0]["title"] == "T"

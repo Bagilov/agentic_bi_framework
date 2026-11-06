@@ -24,16 +24,25 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from agentic_bi.board_guide.guide_build import build_guide
 from agentic_bi.board_guide.guide_geometry import (
     extract_page_geometry,
     load_measure_expressions,
 )
-from agentic_bi.board_guide.guide_render import build_guide
 from agentic_bi.cli_support import run_boundary
+
+
+def _rel(path: str | Path) -> str:
+    """A path for the console: always relative to the CWD, never absolute."""
+    try:
+        return Path(os.path.relpath(Path(path), Path.cwd())).as_posix()
+    except ValueError:  # different drives (Windows): keep the path as given
+        return Path(path).as_posix()
 
 
 def _build(args: argparse.Namespace) -> int:
@@ -52,9 +61,10 @@ def _build(args: argparse.Namespace) -> int:
             geometry.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
         )
         Path(args.geometry_json).write_text(payload, encoding="utf-8")
-        print(f"geometry -> {args.geometry_json}")
+        print(f"geometry -> {_rel(args.geometry_json)}")
 
     shots = args.shots
+    capture_areas: dict[str, tuple[float, float]] = {}
     if args.capture_url:
         from agentic_bi.board_guide.guide_capture import capture_pages
 
@@ -67,19 +77,38 @@ def _build(args: argparse.Namespace) -> int:
             max_pages=args.max_pages,
             headless=not args.headful,
         )
-        print(f"captured={len(result['pages'])} -> {shots}")
+        capture_areas = {
+            str(page["stem"]): (
+                float(page["area"]["width"]),
+                float(page["area"]["height"]),
+            )
+            for page in result["pages"]
+        }
+        print(f"captured={len(result['pages'])} -> {_rel(shots)}")
 
+    skipped: list[tuple[str, str]] = []
     saved = build_guide(
         geometry,
         args.out_dir,
         screenshots=shots,
         src_prefix=args.src_prefix,
         title=args.title,
+        on_skip=lambda name, reason: skipped.append((name, reason)),
+        capture_areas=capture_areas,
     )
     page_files = [p for p in saved if p.name != "index.html"]
-    print(f"guide pages={len(page_files)} out={args.out_dir}")
-    for path in saved:
-        print(f"  {path}")
+    print(
+        f"guide: {len(page_files)} лист(ов) записано, "
+        f"{len(skipped)} пропущено -> {_rel(args.out_dir)}"
+    )
+    print(f"index: {_rel(saved[-1])}")
+    for name, reason in skipped[:3]:
+        print(f"warning: лист '{name}' пропущен: {reason}", file=sys.stderr)
+    if len(skipped) > 3:
+        print(
+            f"warning: ещё {len(skipped) - 3} лист(ов) пропущено — см. index.html",
+            file=sys.stderr,
+        )
     if not page_files:
         print(
             "warning: no page had a screenshot; pass --shots/--capture-url or "

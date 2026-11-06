@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from agentic_bi.board_guide import build_guide, extract_page_geometry
@@ -34,6 +35,14 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 DEFAULT_PBIX = _ROOT / "templates" / "template.pbix"
 DEFAULT_OUT = _ROOT / "output_files" / "board_guide"
+
+
+def _rel(path: Path) -> str:
+    """A path for the console: relative to the CWD when it is inside it."""
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except (ValueError, OSError):
+        return path.as_posix()
 
 
 def _print_geometry(geometry) -> None:
@@ -84,18 +93,27 @@ def main() -> int:
         json.dumps(geometry.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
+    skipped: list[tuple[str, str]] = []
     saved = build_guide(
         geometry,
         args.out_dir,
         screenshots=args.shots,
         src_prefix=args.src_prefix,
         title=f"Board guide · {pbix.name}",
+        on_skip=lambda name, reason: skipped.append((name, reason)),
     )
-    for path in saved:
-        print(f"wrote {path} ({path.stat().st_size} B)")
+    print(f"guide: {len(saved) - 1} page(s), {len(skipped)} skipped")
+    print(f"index: {_rel(saved[-1])} ({saved[-1].stat().st_size} B)")
+    for name, reason in skipped[:3]:
+        print(f"warning: page '{name}' skipped: {reason}", file=sys.stderr)
+    if len(skipped) > 3:
+        print(
+            f"warning: {len(skipped) - 3} more skipped — see index.html",
+            file=sys.stderr,
+        )
     if not args.shots and not args.src_prefix:
         print(
-            "no screenshots passed: wrote the index and geometry.json only; "
+            "no screenshots passed: the index and geometry.json only; "
             "name your images page_<stem>.png and re-run with --shots"
         )
     return 0

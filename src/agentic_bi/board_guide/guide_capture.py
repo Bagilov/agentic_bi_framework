@@ -3,13 +3,10 @@
 Nothing here is required for the guide: if you already have screenshots (a
 Desktop capture, a CI artifact, a manual set) drop them as `page_<stem>.png` in
 one directory and call `build_guide` directly. This module only automates the
-"open a URL and shoot every page" step, and it is deliberately generic:
-
-* the report URL is a parameter;
-* the page-area and visual-container selectors are parameters (a portal, a
-  custom host or a local static render all differ);
-* the browser executable is discovered from `GUIDE_CHROME`/`PLAYWRIGHT_CHROME`
-  or the usual per-OS locations — no path is baked in.
+"open a URL and shoot every page" step, and it is deliberately generic: the
+report URL and every selector are parameters, and the browser executable is
+discovered from `GUIDE_CHROME`/`PLAYWRIGHT_CHROME` or the usual per-OS locations
+— no path is baked in.
 
 Public API:
     find_browser_executable(explicit=None) -> str | None
@@ -68,12 +65,17 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
 
     Order: the `explicit` argument, `GUIDE_CHROME`, `PLAYWRIGHT_CHROME`, then the
     usual install locations for the current OS.
+
+    Raises:
+        ValueError: when `explicit` is given but does not exist. A user who
+            names a browser must not be silently switched to another one; that
+            produced a capture from a browser they did not choose.
     """
-    for candidate in (
-        explicit,
-        os.getenv("GUIDE_CHROME"),
-        os.getenv("PLAYWRIGHT_CHROME"),
-    ):
+    if explicit:
+        if not Path(explicit).exists():
+            raise ValueError(f"browser executable not found: {explicit}")
+        return explicit
+    for candidate in (os.getenv("GUIDE_CHROME"), os.getenv("PLAYWRIGHT_CHROME")):
         if candidate and Path(candidate).exists():
             return candidate
     for candidate in _BROWSER_CANDIDATES.get(sys.platform, ()):
@@ -174,13 +176,16 @@ def capture_pages(
         `{"out_dir", "pages": [{"name", "png", "area", "n"}]}`.
 
     Raises:
-        RuntimeError: when Playwright is missing, no browser is found, or the
-            report frame cannot be located.
+        ValueError: when Playwright is missing, the Chromium binary cannot be
+            launched (including a missing explicit `--browser` path), or the
+            report frame cannot be located. All are user-facing configuration or
+            page problems, so the CLI boundary reports them as a bad input
+            (exit 2) instead of a traceback (`cli_support`).
     """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError(
+        raise ValueError(
             "capture requires Playwright: pip install 'agentic-bi-framework[guide]'"
         ) from exc
 
@@ -195,7 +200,13 @@ def capture_pages(
             launch["executable_path"] = executable
         if ignore_https_errors:
             launch["args"] = ["--ignore-certificate-errors"]
-        browser = p.chromium.launch(**launch)
+        try:
+            browser = p.chromium.launch(**launch)
+        except Exception as exc:
+            raise ValueError(
+                "capture requires a Chromium binary: install Chromium/Chrome, set "
+                "GUIDE_CHROME, or pass --browser PATH"
+            ) from exc
         ctx = browser.new_context(
             ignore_https_errors=ignore_https_errors, viewport=_VIEWPORT
         )
@@ -207,7 +218,7 @@ def capture_pages(
 
             frame = _report_frame(pg)
             if frame is None:
-                raise RuntimeError(f"report frame not found on {url}")
+                raise ValueError(f"report frame not found on {url}")
 
             iframe_box = pg.evaluate(
                 "() => { const ifs=[...document.querySelectorAll('iframe')];"

@@ -27,10 +27,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agentic_bi.board_guide import guide_hotspots as gh
 from agentic_bi.board_guide import guide_layout as gl
 from agentic_bi.board_guide.guide_names import safe_name, unique_stems
 
-_DEFAULT_W, _DEFAULT_H = 1280.0, 720.0
+_DEFAULT_W = gh.DEFAULT_CANVAS_WIDTH
+_DEFAULT_H = gh.DEFAULT_CANVAS_HEIGHT
+_UNNAMED = "визуал без названия"
 
 
 @dataclass
@@ -51,35 +54,33 @@ class GuideVisual:
 
     @property
     def label(self) -> str:
-        """A human label: title, else first measure/field, else the type."""
+        """A human label: title, else first measure/field, else the type.
+
+        Never empty: an untyped visual with no title still needs a readable
+        tooltip and panel heading, so it falls back to a named placeholder.
+        """
         if self.title:
             return self.title
         if self.measures:
             return self.measures[0]
         if self.fields:
             return self.fields[0]
-        return self.visual_type
+        return self.visual_type or _UNNAMED
 
     @property
     def has_data(self) -> bool:
         """Whether the visual projects any field or measure."""
         return bool(self.fields or self.measures)
 
-    def hotspot(self, page_width: float, page_height: float) -> dict[str, float]:
-        """The box as canvas percentages, so it overlays any screenshot scale.
+    def hotspot(self, page_width: float, page_height: float) -> gh.Box:
+        """The box as canvas percentages, clipped to the visible canvas area.
 
-        Percentages stay in `[0, 100]`: a visual whose box is unset, negative or
-        (partly) outside the canvas is clamped to the visible area instead of
-        producing a hotspot off-screen. A zero/negative canvas falls back to the
-        default canvas.
+        Delegates to `guide_hotspots.place`: a box that hangs over an edge keeps
+        only its visible part, a fully outside or degenerate box is invisible
+        (not pinned to an edge), and a visible-but-tiny box is grown to a
+        hoverable minimum so its label stays reachable.
         """
-        w = page_width if page_width > 0 else _DEFAULT_W
-        h = page_height if page_height > 0 else _DEFAULT_H
-        left = min(max(self.x / w * 100.0, 0.0), 100.0)
-        top = min(max(self.y / h * 100.0, 0.0), 100.0)
-        width = min(max(self.width / w * 100.0, 0.0), 100.0 - left)
-        height = min(max(self.height / h * 100.0, 0.0), 100.0 - top)
-        return {"left": left, "top": top, "width": width, "height": height}
+        return gh.place(self, page_width, page_height)
 
     def to_dict(self) -> dict[str, Any]:
         """A JSON-ready view (saved geometry and tests)."""
@@ -151,6 +152,17 @@ def _ordinal(value: Any) -> int:
         return 0
 
 
+def _side(value: object, default: float) -> float:
+    """A positive canvas side, else `default` (a negative box is not a canvas).
+
+    `Report/Layout` may carry `width: -100`; storing it verbatim made
+    `--geometry-json` disagree with rendering and `place()`, both of which fall
+    back to the default canvas for a non-positive side.
+    """
+    number = gl.as_float(value)
+    return number if number > 0 else default
+
+
 def _visual(vc: dict, measures: dict[str, str]) -> GuideVisual | None:
     """Build one visual from a container, or None when it is unreadable."""
     raw = vc.get("config")
@@ -205,8 +217,8 @@ def extract_page_geometry(
             continue
         page = GuidePage(
             name=str(section.get("displayName") or section.get("name") or "?"),
-            width=gl.as_float(section.get("width")) or _DEFAULT_W,
-            height=gl.as_float(section.get("height")) or _DEFAULT_H,
+            width=_side(section.get("width"), _DEFAULT_W),
+            height=_side(section.get("height"), _DEFAULT_H),
             ordinal=_ordinal(section.get("ordinal")),
         )
         containers = section.get("visualContainers") or []

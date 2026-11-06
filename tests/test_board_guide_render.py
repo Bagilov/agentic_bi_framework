@@ -11,6 +11,8 @@ import json
 import zipfile
 from pathlib import Path
 
+from tests.test_board_guide_png import MINIMAL_PNG
+
 from agentic_bi.board_guide import (
     GuideGeometry,
     GuidePage,
@@ -55,7 +57,7 @@ def test_render_page_html_places_hotspots_as_percentages() -> None:
     # 130/1300 = 10%, 105/1050 = 10%, 260/1300 = 20%
     assert "left:10.00%;top:10.00%;width:20.00%;height:20.00%" in html
     # the static visual still gets a hotspot (its geometry is real)
-    assert html.count('class="hot"') == 2
+    assert html.count('data-i="') == 2
 
 
 def test_render_page_html_escapes_and_injects_help() -> None:
@@ -92,12 +94,14 @@ def test_build_guide_skips_pages_without_a_screenshot(tmp_path: Path) -> None:
     geometry = _geometry()
     shots = tmp_path / "shots"
     shots.mkdir()
-    (shots / "page_Overview.png").write_bytes(b"\x89PNG\r\n")
+    (shots / "page_Overview.png").write_bytes(MINIMAL_PNG)
     saved = build_guide(geometry, tmp_path / "out", screenshots=shots)
     names = {p.name for p in saved}
     assert names == {"guide_Overview.html", "index.html"}
     body = (tmp_path / "out" / "guide_Overview.html").read_text(encoding="utf-8")
-    assert str(shots / "page_Overview.png") in body
+    # the src is relative to the HTML, so the guide still works after a move
+    # (and the emitted document has no machine-specific absolute path)
+    assert 'src="../shots/page_Overview.png"' in body
 
 
 def test_build_guide_without_screenshots_writes_only_index(tmp_path: Path) -> None:
@@ -212,8 +216,8 @@ def test_render_page_html_escapes_js_line_separator() -> None:
     assert "line\u2028sep\u2029end" in ref
 
 
-def test_render_page_html_clamps_offscreen_hotspots() -> None:
-    """Hotspot percentages stay in `[0, 100]`; no `nan` leaks into the CSS."""
+def test_render_page_html_drops_hotspots_outside_the_canvas() -> None:
+    """Off-canvas boxes are not rendered; no `nan` leaks into the CSS."""
     page = GuidePage(name="P", width=100, height=100)
     page.visuals.append(
         GuideVisual(visual_type="x", title="", x=-50, y=-60, width=10, height=10)
@@ -222,8 +226,8 @@ def test_render_page_html_clamps_offscreen_hotspots() -> None:
         GuideVisual(visual_type="y", title="", x=5000, y=5000, width=10, height=10)
     )
     html = render_page_html(page, "a.png")
-    assert "left:0.00%;top:0.00%;width:10.00%;height:10.00%" in html
-    assert "left:100.00%;top:100.00%;width:0.00%;height:0.00%" in html
+    assert 'data-i="' not in html
+    assert "Ни один визуал не попадает в границы канваса" in html
     assert "nan" not in html.lower()
 
 
