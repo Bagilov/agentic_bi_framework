@@ -2,7 +2,7 @@
 
 **Package:** `agentic_bi` (part of the `agentic_bi_framework` project)
 **Base materials:** the brand style guide (visual identity guide),
-`agentic_bi/brand.py`
+`agentic_bi/brand/` (palette/fonts/rules)
 
 ---
 
@@ -21,7 +21,7 @@ The check is fully automated and works offline, without opening PowerPoint.
 brand_config.yaml   <-  audit config (rules, tolerances, severity)
         │
         ▼
-brand.py            <-  machine-readable brand-book base (palette/fonts/rules)
+brand/              <-  machine-readable brand-book base (palette/fonts/rules)
         │
         ▼
 brand/config.py     <-  merge config + base -> BrandConfig (effective)
@@ -32,12 +32,13 @@ brand/audit.py      <-  extract observations from the document + evaluate -> Aud
 
 | Layer | File | Role |
 |-------|------|------|
-| Base | `brand.py` | brand-book defaults (source of truth) |
+| Base | `brand/palette.py`, `brand/fonts.py`, `brand/rules.py` | brand-book defaults (source of truth) |
 | Config | `brand_config.yaml` | project overrides: tolerances, severity, what to check |
 | Loader | `brand/config.py` | `BrandConfig.load()` / `.default()`, `match()`, `severity_of()` |
 | Engine | `brand/audit.py` | `audit_pptx()` / `audit_document()`, `ThemeResolver`, CLI |
 
-**Principle:** the config contains **only differences** from `brand.py`. Anything
+**Principle:** the config contains **only differences** from the `brand/` base.
+Anything
 not set in the config falls back to the style-guide value. This avoids duplication
 and divergence from the spec.
 
@@ -59,11 +60,11 @@ default not checked for fill/line (inherited from the theme).
 
 ## 3. Configuration file
 
-`agentic_bi/brand_config.yaml` — structure:
+`src/agentic_bi/brand_config.yaml` — structure:
 
 | Section | Sets | Keys |
 |---------|------|------|
-| `meta` | version/source | `source: assets/brand/brand-book.pdf` |
+| `meta` | version/source | `version`, `source` (free-text reference, empty by default) |
 | `colors` | palette and tolerance | `primary`, `additional`, `allow_extra`, `tolerance_rgb` |
 | `fonts` | families | `allowed`, `fallback`, `weights`, `check_size_step` |
 | `background` | backgrounds and contrast | `preferred`, `allowed`, `min_contrast` |
@@ -123,7 +124,9 @@ python -m agentic_bi.brand.audit "Presentation.pptx" \
   `slide 2 / shape 'TextBox 1' / p0r0 / font`.
 - **JSON** — machine-readable: `summary` (counts by category) + `findings[]`.
 - **Exit code** (`--fail-on`): `error` → 1 on blocking findings; `warning` → 1 on
-  any; `never` (default) → always 0.
+  any; `never` (default) → 0 unless the input is bad. A missing/unreadable
+  document or config, an unsupported format or a document that does not open as
+  `.pptx` is a bad input → 2.
 
 ### Step 4. Fix and repeat
 
@@ -191,21 +194,22 @@ Audit: Presentation.pptx
   properties). If needed, a separate image color analysis (`Pillow`) can reuse
   the same `BrandConfig`.
 - **Logo:** the "presence/safe zone" check requires image recognition and is out
-  of scope for the current version (`ELEM-LOGO-SAFE-ZONE` is declared in `brand.py`).
+  of scope for the current version (`ELEM-LOGO-SAFE-ZONE` is declared in
+  `brand/rules.py`).
 
 ## 7.1 Code quality
 
 - The engine is split into small functions (`_eval_colors`, `_eval_font`,
   `_eval_contrast`, `_eval_background`, `_eval_document_rules`, `_eval_font_size`).
-- Tests: `tests/test_brand_audit.py` — config, theme resolver, groups, tables,
-  background, contrast, weights/sizes, severity, limits, serialization.
+- Tests: `tests/test_gate_robustness.py` (color math, weights, decoding) and
+  `tests/test_cli_ux.py` (CLI exit codes, help, messages).
 
 ## 8. Related materials
 
-- `agentic_bi/brand.py` — the brand base (palette/fonts/rules)
+- `agentic_bi/brand/` — the brand base (`palette.py`/`fonts.py`/`rules.py`)
 - `agentic_bi/brand_config.yaml` — the audit config
 - `agentic_bi/brand/config.py` — config loading and merging
 - `agentic_bi/brand/audit.py` — the audit engine + CLI
-- `tests/test_brand_audit.py` — tests
+- `tests/test_gate_robustness.py`, `tests/test_cli_ux.py` — tests
 - the brand style guide (visual identity guide) — the primary source
 - the corporate font library (Brand Sans/Text)

@@ -545,7 +545,7 @@ Module map:
 |---|---|
 | `report/lineage_matrix.py` | `lineage_to_table`: JSON -> flat rows + `COLUMNS`/`LEVEL` |
 | `report/lineage_table.py` | `LineageTable`: pandas DataFrame + Excel export |
-| `report/plantuml_tools.py` | PlantUML validate/render (`PLANTUML_JAR`/`PLANTUML_JAR_DIR`) |
+| `report/plantuml_tools.py` | PlantUML validate/render/atomic export (`PLANTUML_JAR`/`PLANTUML_JAR_DIR`) |
 | `report/pdf_diagram.py` | render the diagram and tile it across pages |
 | `report/pdf_tables.py` | scorecard, matrix table and brand-issue flowables |
 | `report/pdf_report.py` | `build_report` orchestration + CLI |
@@ -558,6 +558,83 @@ Notes:
   `REPORT_PDF_FONT` (or the `--font` flag) when auto-detection is not enough.
 - Page size/orientation are flags; the matrix paginates automatically and the
   diagram tiles when it is taller than one page.
+
+### 15.1 The lineage diagram as its own artifact
+
+`PbiLineage` always embeds the diagram source in `lineage.json` under the
+`plantuml` key (built from the same dict as the rest of the JSON, i.e.
+script -> JSON -> PlantUML). To get the diagram as a file — the source `.puml`
+alone, or a rendered PNG — ask the lineage CLI for it:
+
+```bash
+# <out-dir>/lineage.puml (PlantUML source only)
+agentic-bi-lineage dashboard.pbix --out-dir out --plantuml
+
+# <out-dir>/lineage.png as well; needs PLANTUML_JAR and Java on PATH
+PLANTUML_JAR=/path/to/plantuml.jar \
+  agentic-bi-lineage dashboard.pbix --out-dir out --plantuml-png
+```
+
+`--plantuml-png` implies `--plantuml`. The CLI checks that the generated source
+actually contains an `@startuml ... @enduml` block; an empty or unterminated
+source is a failed run (`1`) and no `.puml` file is written, because an empty
+artifact would look like a valid one.
+
+Exit codes follow the shared contract (§ `cli_support`):
+
+| Situation | Code |
+|---|---|
+| success | `0` |
+| no `plantuml.jar` configured (`PLANTUML_JAR` / `PLANTUML_JAR_DIR`) or no Java | `2` (configuration) |
+| source does not compile, or rendering produced no usable PNG | `1` (runtime) |
+
+The jar is resolved and checked **before** any render attempt, so a configuration
+problem is reported as such instead of being mistaken for a broken diagram. There
+is exactly one JVM run per PNG: the CLI no longer calls `validate_text` and then
+`render_png` (two JVMs, two chances to disagree). `render_png_ex` returns
+`(path, diagnostic)` and the CLI prints that diagnostic (PlantUML's own message,
+error line included) on stderr. `validate_text` remains a public API for callers
+that only want a pre-flight check. Users resolve the jar from `PLANTUML_JAR` /
+`PLANTUML_JAR_DIR`; no default path is shipped.
+
+The `plantuml` key in `lineage.json` is always written, even when the diagram is
+also exported as a file. The flags are independent of the JSON output mode:
+`--print-json` prints machine-readable JSON to stdout and skips the JSON, Excel
+and Markdown files, but `--plantuml` / `--plantuml-png` still produce their
+artifacts (their progress lines go to stderr to keep stdout parseable), and
+`--no-json` does not affect them either. The output directory is created lazily
+by whichever writer first needs it, so `--print-json` without diagram flags
+works in a read-only working directory. The `.puml` file is written atomically
+(temp file + `os.replace`), the descriptor is widened to `0o666 & ~umask` (a
+plain `mkstemp` file would stay `0600`), the content is flushed and fsynced, and
+it is written with `newline="\n"` so the bytes are identical everywhere (no BOM,
+no CRLF). A failed write leaves neither a partial file nor a temporary one.
+
+The renderer handles one PlantUML quirk worth knowing: the jar names its output
+after the `@startuml <name>` header, not after the input file, and it writes into
+the output directory only. `render_png_ex` therefore renders into a private temp
+directory, considers only PNGs that resolve inside it (a `@startuml ../x` header
+cannot publish a file outside), and moves the produced files to caller-chosen
+names, so a PNG already sitting in `out_dir` is never returned by accident.
+Publishing uses `os.replace` (atomic) with `shutil.move` only as a cross-device
+(`EXDEV`) fallback, and success is taken from the staged file rather than a
+re-read of `out_dir` (which would race with a concurrent writer).
+
+A source with several `@startuml ... @enduml` blocks produces one PNG per block.
+Blocks are ordered by the appearance of `@startuml <name>` in the source, so the
+first block is the primary one: `@startuml zeta` before `@startuml alpha` yields
+`<name>.png` = zeta and `<name>_2.png` = alpha. A nameless block is named by the
+jar after the source file and cannot be matched to a position, so unmatched files
+are appended alphabetically; with no matchable header the whole order is
+alphabetical (documented, stable, but not source order). Every produced file must
+be non-empty: an empty PNG is dropped rather than published, and a run with no
+non-empty output fails. After the new set lands, stale `<name>_<k>.png` files
+(`k >= 2`) from an earlier, larger run are removed so they are not mistaken for
+current output. The warning for a multi-block source names the block files, not
+full temporary paths. `safe_stem` bounds the stem to 100 characters (a content
+hash keeps truncated names distinct), prefixes Windows device names (`CON`,
+`NUL`, `COM1` ...) and falls back when the name reduces to nothing. A single-block
+diagram (what `PbiLineage.to_plantuml()` generates) yields exactly one file.
 
 ---
 
@@ -812,8 +889,13 @@ screenshot (Desktop | portal | test) ───────┘   (image + % hotsp
 Neither reads images: the picture is for the human, while the hotspots and the
 help text are derived from the layout, so an agent can validate the guide without
 vision. The hotspot boxes are canvas **percentages** (`x/width`), so the same
-guide is correct at any screenshot scale — the layout canvas is scaled to the
-image, which preserves its aspect ratio.
+guide is correct at any screenshot scale — provided the screenshot keeps the
+canvas aspect ratio. `build_guide` reads the PNG IHDR size and records a warning
+in the index when the image (or the capture `area`) differs from the page canvas
+by more than 1%, because a cropped or letterboxed image would otherwise shift
+every hotspot silently. The print stylesheet scales the image by width only: a
+height cap would letterbox a tall screenshot while the hotspots stay relative to
+the wrapper.
 
 Module map:
 
@@ -821,8 +903,14 @@ Module map:
 |---|---|
 | `board_guide/guide_geometry.py` | typed model: `GuideVisual`, `GuidePage`, `GuideGeometry`; `extract_page_geometry`, `load_measure_expressions` |
 | `board_guide/guide_layout.py` | untrusted `Report/Layout` helpers (title, projections, filters, position, hidden pages) |
+| `board_guide/guide_hotspots.py` | hotspot clipping, minimum hover size, paint order and overlap pairs; default canvas constants |
+| `board_guide/guide_names.py` | page names -> safe, unique file stems |
 | `board_guide/guide_assets.py` | CSS/JS (page stylesheet, index stylesheet, hover/click script) |
-| `board_guide/guide_render.py` | geometry + screenshots -> HTML (`render_page_html`, `build_guide`) |
+| `board_guide/guide_png.py` | PNG signature check and IHDR dimensions (stdlib only) |
+| `board_guide/guide_print.py` | printed legend `#N -> type/fields/measures` hidden on screen |
+| `board_guide/guide_render.py` | geometry + screenshot -> one annotated page |
+| `board_guide/guide_index.py` | the guide index (links, skipped pages, aspect warnings) |
+| `board_guide/guide_build.py` | screenshot resolution, PNG/aspect validation, writing the guide |
 | `board_guide/guide_capture.py` | optional Playwright capture of a rendered report (extra `guide`) |
 | `board_guide/guide_cli.py` | `agentic-bi-board-guide` CLI |
 
@@ -907,9 +995,32 @@ Notes:
   element or the string. The capture JS builders escape the selector/area strings
   they interpolate (`_js_string`), so a quote in a configured selector cannot
   produce broken JS.
+- A screenshot named `page_<stem>.png` is checked for the PNG signature and the
+  IHDR chunk before it is emitted: a text file, an HTML error page or a truncated
+  download is skipped with a reason instead of becoming a broken `<img>` with
+  zero-size hotspots. The IHDR size is also compared with the canvas and the
+  capture `area`; a ratio difference above 1% is listed in the index, because a
+  cropped or letterboxed image shifts every percentage hotspot. `onerror` in the
+  page script removes the hotspots if the browser still cannot decode the image.
+- Print scales the screenshot by width only. A `max-height` cap activated
+  `object-fit: contain` inside a wrapper whose hotspots stay container-relative,
+  so a tall (mobile) screenshot letterboxed and its hotspots drifted by the side
+  padding. On wide screens `.stage` reserves the 370 px panel column, so the
+  fixed panel cannot cover the top-right hotspots. Paper also gets a
+  `#N -> type/fields/measures` legend (`.printlist`), since a hover label is not
+  printable.
+- Captured visuals that fall outside the canvas are counted in the header
+  (`вне канваса N`), so a page with 20 visuals no longer silently shows 15.
+  Hotspots are `role="button" tabindex="0"` with an `aria-label` and an
+  Enter/Space handler, so the guide works without a mouse. A missing or
+  unlaunchable Chromium binary is a bad input (exit 2), and an explicit
+  `--browser` path that does not exist is never replaced by another browser.
 - Tests: `tests/test_board_guide_names.py`, `tests/test_board_guide_geometry.py`,
-  `tests/test_board_guide_robustness.py`, `tests/test_board_guide_render.py`,
-  `tests/test_board_guide_cli.py`.
+  `tests/test_board_guide_canvas.py`, `tests/test_board_guide_robustness.py`,
+  `tests/test_board_guide_render.py`, `tests/test_board_guide_png.py`,
+  `tests/test_board_guide_a11y.py`, `tests/test_board_guide_cli.py`,
+  `tests/test_board_guide_layout_browser.py` (real headless Chromium geometry,
+  skipped when no Chromium binary is installed).
 
 ---
 

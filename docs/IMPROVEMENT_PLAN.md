@@ -207,7 +207,10 @@ passes all four jobs (lint, py3.10/py3.12 on Ubuntu, py3.12 on Windows).
 ### Stage 2 — Test the untested core, not the whole tree (1 week)
 
 **Status: done.** 6 new test files, 437 tests (was 322), coverage 59.97 %, and the
-ratchet floor raised 55 → 58 in the same change.
+ratchet floor raised 55 → 58 in the same change. The loop later raised the same
+floor twice more in step with the tests it added: 58 → **72** at 79.51 % measured
+(R5), so the gate now fails on a real coverage regression rather than sitting
+far below the tree's actual state.
 
 The three write paths, measured after this stage (target was ≥ 70 %):
 
@@ -286,7 +289,7 @@ server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
   files**, dominated by `attr-defined` (109) on the lineage and guest mixins —
   mypy cannot see the attributes a sibling mixin defines because
   `PbiLineage`/`WinRMTransport` compose them without a shared Protocol. That is a
-  real annotation gap, fixed by a Protocol in a later change.
+  real annotation gap, since closed by `lineage/lineage_state.py` (see below).
 
   Report-only is enforced by a **baseline ratchet**, not by
   `continue-on-error`: the step runs `mypy`, parses `Found N errors`, and fails
@@ -298,6 +301,16 @@ server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
   non-zero baseline. The pin keeps the baseline reproducible: the declared floor
   `mypy==1.8.0` reports 168/27, so an unbounded requirement would silently
   re-baseline the documented number.
+
+  **Superseded.** The ratchet was a transition device: it existed only because
+  the count could not be driven to zero in one change. The count is now zero
+  (164 → 0; the remainder was the mixin `attr-defined` class, fixed with a
+  `LineageState` Protocol plus `TYPE_CHECKING` declarations in the guest
+  mixins, and optional-dependency typing). `ci.yml` therefore runs `mypy` as a
+  plain **blocking** step: `MYPY_BASELINE`, `set +e`, `tee` and the `sed`
+  parser are gone, so a single new error fails the leg. The `mypy>=1.8,<2.5`
+  pin stays — it keeps the result reproducible across checker releases now that
+  the gate is absolute.
 - Exclude debug modules from the wheel: **measurement contradicts the original
   list.** Only `board_fake` is genuinely unreachable from a shipped entry point.
   The other four are runtime code and removing them breaks a documented workflow:
@@ -341,12 +354,16 @@ server and would only buy mock-versus-mock tests. Skip `_engine_oracle.py` and
   the 4 remaining `noqa: F401` (public re-exports and the `xpress9` availability
   probe) are each verified necessary by re-running `--select F401` with the
   directive stripped.
-- mypy in CI with a **baseline ratchet** (`types` job, `MYPY_BASELINE=164`,
-  bounded `mypy>=1.8,<2.5`), plus `mypy` config in `pyproject.toml`; measured
-  baseline 164 errors, triaged as the mixin `attr-defined` class plus
-  optional-dependency typing. The ratchet was mutation-tested: growing the count,
-  producing no result, dropping the baseline, and re-adding
-  `continue-on-error` each fail the contract test.
+- mypy in CI as a **blocking gate** (`types` job, bounded `mypy>=1.8,<2.5`),
+  plus `mypy` config in `pyproject.toml`. It started as a baseline ratchet at
+  164 errors (the mixin `attr-defined` class plus optional-dependency typing);
+  the count is now **zero**, so the ratchet was removed and one new error fails
+  the leg. The protocol replaced the mixin gap: `lineage/lineage_state.py`
+  declares `LineageState`/`PbixModel`, and the guest mixins declare their
+  inherited members under `TYPE_CHECKING`. The old ratchet was mutation-tested
+  (growing the count, producing no result, dropping the baseline, re-adding
+  `continue-on-error` each failed the contract test); the contract test now
+  asserts the inverse — no `MYPY_BASELINE`, no `continue-on-error`, no `set +e`.
 - The `origins` parameter of `PbiLineage` was narrowed from
   `list | dict | str | Path | None` to `dict | str | Path | None`, matching
   `load_origins`. Shipping `py.typed` otherwise made a consumer's checker trust a

@@ -101,8 +101,11 @@ Use a **prebuilt DataModel** (`.abf`) plus a template `.pbix`:
 ```
 
 This builds the layout, assembles the container, runs `visual_check` and
-`engine_verify` (layout) and writes a JSON report. Exit code is non-zero on a
-visual error or a failed critical check.
+`engine_verify` (layout) and writes a JSON report. Exit codes follow
+`agentic_bi.cli_support`: `0` when the build and its checks pass, `1` on a visual
+error or a failed critical check, `2` on a bad input (missing data, template,
+`--datamodel` or `--registry` file). The last line is a one-line summary; the
+written paths are printed relative to the current directory.
 
 ### B. Full engine build (Windows guest)
 
@@ -207,6 +210,10 @@ export AGENTIC_BI_VM_UUID="<utm-vm-uuid>"   # optional: enables utmctl start/sto
 The verdict tokens are `BUILT`, `NOT_BUILT`, `STAGE_FAILED`, `ORACLE_FAILED`,
 `TIMEOUT` (plus `NOT_CONFIGURED` from the CLI when the guest env is unset, exit
 2). Exit code is 0 only for `BUILT` with `oracle in (None, "MODEL_LOADED")`.
+`--json` is written whenever the chain reaches a verdict, including
+`NOT_CONFIGURED`, so CI can read the verdict instead of scraping stdout. A budget
+the user can fix (`AGENTIC_BI_CHAIN_TIMEOUT=abc`, `--timeout -5`) is rejected
+before the run starts: exit 2, one stderr line, no verdict file and no traceback.
 
 Gallery of **every** supported visual kind (one page):
 
@@ -268,6 +275,7 @@ The `.abf` is a few KB–MB. Either
 3. Point `PBI_RS_DESKTOP` / `PBI_RS_BIN` / `PBI_RS_TEMPLATE` at the guest build
    (env vars) or pass CLI flags.
 4. Author layout on macOS (`engine_layout`), validate with
-   `agentic-bi-visual-check`.
+   `agentic-bi-validate` (model references) and `agentic-bi-visual-check`
+   (static layout).
 5. Build the model in the guest, copy the `.abf` back, assemble, and run
    `agentic-bi-test-build` for the full report.

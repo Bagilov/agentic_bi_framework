@@ -76,6 +76,25 @@ from agentic_bi import spec, board
 # See docs/FRAMEWORK.md for the full lifecycle.
 ```
 
+## Console commands
+
+Every command follows one exit-code contract (`agentic_bi.cli_support`): `0`
+success, `1` the work ran and its own result was negative, `2` bad input or
+configuration — a bad input never ends in a traceback.
+
+| Command | What it does | Exit `1` means |
+|---------|--------------|----------------|
+| `agentic-bi-validate [PBIX] [--registry JSON]` (or `python -m agentic_bi.validate_pbix`) | layout ↔ donor model check | the layout references unknown model objects |
+| `python -m agentic_bi.inspect_board --path /Folder/Report [--keep-pbix]` | download and break down a published report | the server refused (`403`, unreadable response) |
+| `python -m agentic_bi.dax_detail PBIX [-o JSON] [--summary] [--no-antipatterns]` | DAX/M analysis with distortion markers | not used (a completed analysis is `0`) |
+| `python -m agentic_bi.build [--out DIR] [--display NAME] [--no-visuals]` | PBIP project scaffold | not used |
+| `python -m agentic_bi.rebuild DONOR [--out PBIX] [--display NAME]` | fold a layout into a donor `.pbix` | not used |
+| `agentic-bi-brand-audit DOC [--config YAML] [--json JSON] [--fail-on LEVEL]` | brand-compliance audit | findings at the `--fail-on` level |
+| `agentic-bi-test-build --data CSV --table T --out PBIX [...]` | build and validate a `.pbix` | a visual error or a failed critical check |
+
+Each command ends with a one-line summary (`... -> OK` / `... -> FAILED`) and,
+when it writes files, a CWD-relative `Saved: ...` path.
+
 ## The five lifecycle stages
 
 | Stage | Modules | What it does |

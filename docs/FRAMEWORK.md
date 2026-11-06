@@ -93,6 +93,12 @@ or engine path.
 The framework covers five stages. Each stage maps to concrete modules and to an
 optional *support agent* (see §5).
 
+All console entry points share one exit-code contract
+(`agentic_bi.cli_support`): `0` success, `1` the work ran and its result was
+negative, `2` bad input or configuration. A bad input (missing file, invalid
+spec, unsupported format) ends on code `2` with a one-line message, never on a
+traceback.
+
 ```
 develop → test → deploy → control → support
 ```
@@ -269,7 +275,7 @@ All environment-specific values are inputs:
 | Donor `.pbix` / engine template | CLI flags / constructor |
 | Desktop RS executable | `PBI_RS_DESKTOP` env var |
 | Desktop RS binary dir (PowerShell) | `PBI_RS_BIN` env var |
-| Brand rules | `brand_config.yaml` / `brand.py` |
+| Brand rules | `brand_config.yaml` / `brand/` (palette, fonts, rules) |
 | Threshold overrides | spec `quality`/`deploy` sections |
 | Origin map | `origins.yaml` or built-in neutral default |
 
