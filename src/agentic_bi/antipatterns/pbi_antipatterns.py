@@ -47,6 +47,7 @@ from agentic_bi.antipatterns.antipattern_registry import (  # noqa: F401
     Antipattern,
     _registry,
 )
+from agentic_bi.antipatterns.model_snapshot import snapshot_model
 
 
 def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
@@ -54,50 +55,50 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
 
     Args:
         m: a pbixray object (self._model) - with tables, dax_measures,
-            dax_columns, power_query, schema, relationships.
+            dax_columns, power_query, schema, relationships. Its shape is
+            validated once by `model_snapshot.snapshot_model`, so a foreign or
+            truncated object raises a path-qualified `ValueError` instead of an
+            `AttributeError`/`KeyError` in the middle of the report.
         pages: a list of pages from lineage (for board patterns), optional.
 
     Returns:
         dict {meta, summary, findings}
+
+    Raises:
+        ValueError: the object does not look like a pbixray model.
     """
+    model = snapshot_model(m)
     reg = _registry()
-    meta = {
+    meta: dict[str, object] = {
         "type": "pbi_antipatterns",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "anti_patterns": len(reg),
     }
 
-    findings: dict[str, list] = defaultdict(list)  # level -> list of findings
+    findings: dict[str, list[dict]] = defaultdict(list)  # level -> findings
 
     # ---- sources (M code) ----
-    pq = m.power_query
-    if hasattr(pq, "iterrows"):
-        for _, row in pq.iterrows():
-            findings["source"] += analyze_source_m(row["Expression"], row["TableName"])
-    else:
-        for tbl, expr in pq.items():
-            findings["source"] += analyze_source_m(expr, tbl)
+    for src in model.sources:
+        findings["source"] += analyze_source_m(src.expression, src.table)
 
     # ---- DAX measures ----
     measures_exprs_by_table: dict[str, list[str]] = defaultdict(list)
-    for _, row in m.dax_measures.iterrows():
-        t = row["TableName"]
-        expr = row["Expression"]
-        findings["measure"] += analyze_measure(row["Name"], expr)
-        measures_exprs_by_table[t].append(expr)
+    for row in model.measures:
+        findings["measure"] += analyze_measure(row.name, row.expression)
+        measures_exprs_by_table[row.table].append(row.expression)
 
     # ---- calculated columns ----
-    for _, row in m.dax_columns.iterrows():
+    for calc in model.columns:
         findings["calc_column"] += analyze_calc_column(
-            row["TableName"], row["ColumnName"], row["Expression"]
+            calc.table, calc.column, calc.expression
         )
 
     # ---- tables (aggregated) ----
-    tables_json = {}
-    n_cols_by_table = defaultdict(int)
-    for _, row in m.schema.iterrows():
-        n_cols_by_table[row["TableName"]] += 1
-    for t in m.tables:
+    tables_json: dict[str, dict[str, int]] = {}
+    n_cols_by_table: dict[str, int] = defaultdict(int)
+    for schema_table in model.schema_tables:
+        n_cols_by_table[schema_table] += 1
+    for t in model.tables:
         tables_json[t] = {
             "measures_count": len(measures_exprs_by_table.get(t, [])),
             "columns_count": n_cols_by_table.get(t, 0),
@@ -107,10 +108,10 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
 
     # ---- board ----
     total = {
-        "sources": len(m.power_query),
-        "measures": len(m.dax_measures),
-        "calc_columns": len(m.dax_columns),
-        "tables": len(m.tables),
+        "sources": len(model.sources),
+        "measures": len(model.measures),
+        "calc_columns": len(model.columns),
+        "tables": len(model.tables),
     }
     if pages is not None:
         findings["board"] = analyze_board(
@@ -118,7 +119,7 @@ def analyze_board_objects(m: object, pages: list[dict] | None = None) -> dict:
         )
 
     # ---- summary by id ----
-    id_counter: Counter = Counter()
+    id_counter: Counter[str] = Counter()
     for items in findings.values():
         for it in items:
             id_counter[it["id"]] += 1
@@ -193,8 +194,10 @@ def main(argv: list[str] | None = None) -> int:
             for lv, cnt in s["by_level"].items():
                 print(f"  {lv:12} {cnt}")
             print("By type:")
+            registry = _registry()
             for aid, cnt in sorted(s["by_id"].items(), key=lambda kv: -kv[1]):
-                name = _registry().get(aid).name if _registry().get(aid) else aid
+                pattern = registry.get(aid)
+                name = pattern.name if pattern is not None else aid
                 print(f"  {aid:32} x{cnt}  {name}")
         return 0
 

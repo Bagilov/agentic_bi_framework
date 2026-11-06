@@ -65,7 +65,7 @@ def _calculate_without_filter(expr: str) -> bool:
 
 def analyze_source_m(m_code: str, table: str) -> list[dict]:
     """Find antipatterns in a source's M code (Power Query)."""
-    out = []
+    out: list[dict] = []
     reg = _registry()
     if not isinstance(m_code, str):
         return out
@@ -106,7 +106,7 @@ def analyze_source_m(m_code: str, table: str) -> list[dict]:
 
 def analyze_measure(name: str, expr: str) -> list[dict]:
     """Find antipatterns in a DAX measure expression."""
-    out = []
+    out: list[dict] = []
     reg = _registry()
     if not isinstance(expr, str):
         return out
@@ -152,7 +152,7 @@ def analyze_measure(name: str, expr: str) -> list[dict]:
 
 def analyze_calc_column(table: str, name: str, expr: str) -> list[dict]:
     """Find antipatterns in a calculated column's DAX expression."""
-    out = []
+    out: list[dict] = []
     reg = _registry()
     if not isinstance(expr, str):
         return out
@@ -220,7 +220,7 @@ def _emit(
     hits: list[str], reg: dict[str, Antipattern], level_name: str, scope_name: str
 ) -> list[dict]:
     """Turn id hits into found antipattern records."""
-    out = []
+    out: list[dict] = []
     seen = set()
     for hid in hits:
         if hid in seen:
