@@ -1,29 +1,36 @@
-"""Manifest of a rendered figure set: sizes, hashes and a verification pass.
+"""Manifest of a rendered figure set: statuses, sizes, hashes and verification.
 
-A figure set is only trustworthy if a reader can tell what was produced and
-whether it still matches. The manifest records, per figure, its source, the
-render parameters and the resulting PNG's size and SHA-256. `verify_manifest`
-re-hashes the files and reports drift, so a stale or hand-edited image is caught
-instead of shipped.
+A figure set is only trustworthy if a reader can tell what was requested, what
+was produced, and whether it still matches. The manifest records, per figure,
+its source, the render parameters and what happened to it (`ok`, `skipped`,
+`failed`); an `ok` figure also carries the PNG's size, SHA-256 and byte count.
+`verify_manifest` re-hashes the files, reports drift and reports figures that
+were never built, so a stale or hand-edited image is caught instead of shipped.
+
+The on-disk form (deterministic JSON, no timestamps, no absolute paths) is
+written by `shots_store`.
 
 Public API:
-    RenderRecord      - one produced figure
-    ShotManifest      - the whole run (browser, figures, generated time)
-    write_manifest(records, path, ...) -> ShotManifest
-    read_manifest(path) -> ShotManifest
-    verify_manifest(manifest, *, root=None) -> list[str]
+    STATUS_OK, STATUS_SKIPPED, STATUS_FAILED
+    RenderRecord      - one requested figure and what happened to it
+    ShotManifest      - the whole run (browser name, figures, plan)
+    sha256_file(path) -> str
+    verify_manifest(manifest, ...) -> list[str]
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from agentic_bi.shots.shots_types import ShotPlan
+
+STATUS_OK = "ok"
+STATUS_SKIPPED = "skipped"
+STATUS_FAILED = "failed"
+STATUSES = frozenset({STATUS_OK, STATUS_SKIPPED, STATUS_FAILED})
 
 _CHUNK = 1 << 20
 
@@ -39,18 +46,21 @@ def sha256_file(path: str | Path) -> str:
 
 @dataclass
 class RenderRecord:
-    """One figure produced by a run.
+    """One requested figure and what the run did with it.
 
     Attributes:
         name: the figure's logical id.
         kind: ``html`` or ``terminal``.
-        source: the source file the figure was rendered from.
-        png: the output PNG path (as written).
+        source: the source file name the figure was rendered from.
+        png: the output PNG file name (relative to the manifest), empty when the
+            figure was not produced.
         width: CSS viewport width.
         height: CSS viewport height.
         scale: device scale factor.
-        sha256: the PNG's content hash.
-        bytes: the PNG's size on disk.
+        sha256: the PNG's content hash (empty when not produced).
+        bytes: the PNG's size on disk (0 when not produced).
+        status: ``ok``, ``skipped`` or ``failed``.
+        reason: why a figure was skipped or failed; empty for ``ok``.
     """
 
     name: str
@@ -62,12 +72,21 @@ class RenderRecord:
     scale: float
     sha256: str
     bytes: int
+    status: str = STATUS_OK
+    reason: str = ""
+
+    @property
+    def built(self) -> bool:
+        """Whether this figure's PNG was actually produced."""
+        return self.status == STATUS_OK
 
     def to_dict(self) -> dict[str, Any]:
-        """A JSON-ready view of the record."""
+        """A JSON-ready view of the record (stable key order)."""
         return {
             "name": self.name,
             "kind": self.kind,
+            "status": self.status,
+            "reason": self.reason,
             "source": self.source,
             "png": self.png,
             "width": self.width,
@@ -89,32 +108,31 @@ class RenderRecord:
         """
         if not isinstance(data, dict):
             raise ValueError("manifest: each figure must be a mapping")
-        fields = (
-            "name",
-            "kind",
-            "source",
-            "png",
-            "width",
-            "height",
-            "scale",
-            "sha256",
-            "bytes",
-        )
-        missing = [key for key in fields if key not in data]
+        status = data.get("status") or STATUS_OK
+        where = f" ({data.get('name')!r})" if data.get("name") else ""
+        if status not in STATUSES:
+            raise ValueError(
+                f"manifest: figure has an unknown status{where}: {status!r}"
+            )
+        required = ["name", "kind", "source"]
+        if status == STATUS_OK:
+            required += ["png", "width", "height", "scale", "sha256", "bytes"]
+        missing = [key for key in required if key not in data]
         if missing:
-            where = f" ({data.get('name')!r})" if data.get("name") else ""
             raise ValueError(f"manifest: figure is missing field(s) {missing}{where}")
         try:
             return cls(
                 name=str(data["name"]),
                 kind=str(data["kind"]),
                 source=str(data["source"]),
-                png=str(data["png"]),
-                width=int(data["width"]),
-                height=int(data["height"]),
-                scale=float(data["scale"]),
-                sha256=str(data["sha256"]),
-                bytes=int(data["bytes"]),
+                png=str(data.get("png") or ""),
+                width=int(data.get("width") or 0),
+                height=int(data.get("height") or 0),
+                scale=float(data.get("scale") or 0.0),
+                sha256=str(data.get("sha256") or ""),
+                bytes=int(data.get("bytes") or 0),
+                status=str(status),
+                reason=str(data.get("reason") or ""),
             )
         except (TypeError, ValueError) as exc:
             raise ValueError(
@@ -124,22 +142,27 @@ class RenderRecord:
 
 @dataclass
 class ShotManifest:
-    """The whole run: which browser, which figures, when.
+    """The whole run: which browser, which figures, from which plan.
 
     Attributes:
-        browser: the browser executable that was used.
-        generated: the ISO-8601 UTC timestamp of the run.
-        figures: the produced figures, in render order.
-        plan: the plan file the run came from, when known.
+        browser: the browser executable name (never a full path, so the manifest
+            does not depend on where the browser is installed).
+        generated: an optional ISO-8601 timestamp; empty by default so two runs
+            of the same input produce byte-identical manifests.
+        figures: the requested figures, in plan order, whatever their status.
+        plan: the plan file name the run came from, when known.
+        root: the directory relative PNG paths resolve against (not serialized;
+            filled by `read_manifest`/`write_manifest`).
     """
 
     browser: str
-    generated: str
+    generated: str = ""
     figures: list[RenderRecord] = field(default_factory=list)
     plan: str = ""
+    root: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """A JSON-ready view of the manifest."""
+        """A JSON-ready view of the manifest (stable key order)."""
         return {
             "browser": self.browser,
             "generated": self.generated,
@@ -150,53 +173,19 @@ class ShotManifest:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ShotManifest:
         """Rebuild a manifest from its JSON view."""
+        if not isinstance(data, dict):
+            raise ValueError("manifest: top level must be a mapping")
+        raw = data.get("figures")
+        if raw is None:
+            raw = []
+        if not isinstance(raw, list):
+            raise ValueError("manifest: 'figures' must be a list")
         return cls(
             browser=str(data.get("browser") or ""),
             generated=str(data.get("generated") or ""),
             plan=str(data.get("plan") or ""),
-            figures=[RenderRecord.from_dict(f) for f in data.get("figures") or []],
+            figures=[RenderRecord.from_dict(f) for f in raw],
         )
-
-
-def write_manifest(
-    records: list[RenderRecord],
-    path: str | Path,
-    *,
-    browser: str,
-    plan: str = "",
-) -> ShotManifest:
-    """Write a manifest JSON and return it.
-
-    Args:
-        records: the produced figures.
-        path: where to write the manifest JSON.
-        browser: the browser executable used.
-        plan: the source plan file, when known.
-
-    Returns:
-        The written `ShotManifest`.
-    """
-    manifest = ShotManifest(
-        browser=browser,
-        generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        figures=list(records),
-        plan=plan,
-    )
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return manifest
-
-
-def read_manifest(path: str | Path) -> ShotManifest:
-    """Read a manifest JSON back into a `ShotManifest`."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("manifest: top level must be a mapping")
-    return ShotManifest.from_dict(data)
 
 
 def verify_manifest(
@@ -205,12 +194,15 @@ def verify_manifest(
     root: str | Path | None = None,
     plan: ShotPlan | None = None,
 ) -> list[str]:
-    """Check every figure's file exists and still hashes to its recorded value.
+    """Check every figure's status, file and hash.
 
     Args:
         manifest: the manifest to check.
         root: an optional base directory the recorded PNG paths are relative to;
-            when omitted, the recorded paths are used as-is.
+            when omitted, `manifest.root` (the manifest's own directory) is used,
+            then the paths are used as-is. Each figure is checked by hash **and**
+            by the recorded `bytes`, so a manifest whose size no longer matches
+            the file is drift, not a match.
         plan: the plan the set should cover; when given, a figure named in the
             plan but absent from the manifest is reported as a problem. Without
             it the manifest is checked only against itself, so a run that built
@@ -221,8 +213,16 @@ def verify_manifest(
         A list of human-readable problems; empty means the set is intact.
     """
     base = Path(root) if root is not None else None
+    if base is None and manifest.root:
+        base = Path(manifest.root)
     problems: list[str] = []
     for figure in manifest.figures:
+        if not figure.built:
+            problems.append(
+                f"{figure.name}: not built ({figure.status}: "
+                f"{figure.reason or 'no reason recorded'})"
+            )
+            continue
         png = Path(figure.png)
         resolved = (base / png) if (base and not png.is_absolute()) else png
         if not resolved.exists():
@@ -233,6 +233,14 @@ def verify_manifest(
             problems.append(
                 f"{figure.name}: hash mismatch (expected {figure.sha256[:12]}, "
                 f"got {actual[:12]})"
+            )
+            continue
+        # The recorded size is part of the manifest contract and was never
+        # re-checked, so a manifest with a wrong `bytes` value verified clean.
+        size = resolved.stat().st_size
+        if figure.bytes and size != figure.bytes:
+            problems.append(
+                f"{figure.name}: size mismatch (expected {figure.bytes}, got {size})"
             )
     if plan is not None:
         recorded = {figure.name for figure in manifest.figures}
@@ -246,10 +254,12 @@ def verify_manifest(
 
 
 __all__ = [
+    "STATUSES",
+    "STATUS_FAILED",
+    "STATUS_OK",
+    "STATUS_SKIPPED",
     "RenderRecord",
     "ShotManifest",
-    "read_manifest",
     "sha256_file",
     "verify_manifest",
-    "write_manifest",
 ]

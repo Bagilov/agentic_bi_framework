@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BUDGET_MS = 250
 _DEFAULT_TIMEOUT_S = 60.0
 _POLL_INTERVAL_S = 0.05
+_STABLE_CHECKS = 3
+
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# The last chunk of a PNG is the 12-byte IEND (zero length, type, fixed CRC).
+_PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 class BrowserNotFound(RuntimeError):
@@ -107,22 +112,50 @@ def _run(browser: str, url: str, out: Path, flags: list[str]) -> Path:
             _wait_for_stable_file(out, proc)
         finally:
             _terminate(proc)
-    if not out.exists() or out.stat().st_size == 0:
-        raise RenderError(f"no screenshot at {out} (browser exit {proc.returncode})")
+    if not _complete_png(out):
+        raise RenderError(
+            f"no screenshot at {out.name} (browser exit {proc.returncode})"
+        )
     return out
 
 
+def _complete_png(path: Path) -> bool:
+    """Whether `path` holds a whole PNG: its signature and the trailing IEND.
+
+    A size that stopped changing is not proof the browser finished with the
+    file: it can pause with a half-written image. A complete PNG ends with the
+    fixed 12-byte IEND chunk, so a truncated file is rejected instead of being
+    hashed into the manifest (which is what the reproducibility claim rests on).
+    """
+    try:
+        size = path.stat().st_size
+        if size < len(_PNG_SIGNATURE) + len(_PNG_IEND):
+            return False
+        with path.open("rb") as handle:
+            if handle.read(len(_PNG_SIGNATURE)) != _PNG_SIGNATURE:
+                return False
+            handle.seek(-len(_PNG_IEND), os.SEEK_END)
+            return handle.read() == _PNG_IEND
+    except OSError:
+        return False
+
+
 def _wait_for_stable_file(path: Path, proc: subprocess.Popen) -> None:
-    """Block until `path` exists with a size unchanged for a few checks."""
+    """Block until `path` is a complete PNG whose size is unchanged for a while.
+
+    Both conditions are required: completeness catches a browser that paused
+    mid-write, and the stable size catches a write that resumed after the IEND
+    was observed by an earlier check.
+    """
     last = -1
     stable = 0
     deadline = time.monotonic() + _DEFAULT_TIMEOUT_S
     while time.monotonic() < deadline:
         if path.exists():
             size = path.stat().st_size
-            if size > 0 and size == last:
+            if size > 0 and size == last and _complete_png(path):
                 stable += 1
-                if stable >= 3:
+                if stable >= _STABLE_CHECKS:
                     return
             else:
                 stable = 0
@@ -130,7 +163,7 @@ def _wait_for_stable_file(path: Path, proc: subprocess.Popen) -> None:
         elif proc.poll() is not None:
             return  # browser exited without producing a file
         time.sleep(_POLL_INTERVAL_S)
-    raise RenderError(f"timed out waiting for {path}")
+    raise RenderError(f"timed out waiting for {path.name}")
 
 
 def _terminate(proc: subprocess.Popen) -> None:

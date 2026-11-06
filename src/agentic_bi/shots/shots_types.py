@@ -21,12 +21,22 @@ Public API:
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import tomllib
+from agentic_bi.shots.shots_validation import (
+    FIGURE_KEYS,
+    check_name,
+    check_output_name,
+    figure_label,
+    optional_str,
+    parse_plan,
+    plan_base,
+    positive_int,
+    positive_scale,
+    require_str,
+)
 
 KIND_HTML = "html"
 KIND_TERMINAL = "terminal"
@@ -103,46 +113,35 @@ class FigureSpec:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> FigureSpec:
+    def from_dict(cls, data: dict[str, Any], *, where: str = "figure") -> FigureSpec:
         """Validate one spec mapping.
+
+        Args:
+            data: the figure mapping (defaults already merged in).
+            where: the figure's label for error messages; a plan passes
+                `figure 'a'` or `figures[2]` so a multi-figure plan says which
+                figure is broken instead of a bare `figure:`.
 
         Raises:
             ValueError: when `name`/`kind`/`source` are missing or a value is
-                out of range. Every message names the offending field.
+                out of range. Every message names the figure and the field.
         """
-        extra = set(data) - {
-            "name",
-            "kind",
-            "source",
-            "width",
-            "height",
-            "scale",
-            "title",
-            "columns",
-            "point",
-            "out",
-            "settle_ms",
-        }
+        extra = set(data) - FIGURE_KEYS
         if extra:
-            raise ValueError(f"figure: unknown key(s) {sorted(extra)}")
-        name = _check_name(_require_str(data, "name"))
-        source = _require_str(data, "source")
-        kind = str(data.get("kind") or KIND_HTML).strip().lower()
+            raise ValueError(f"{where}: unknown key(s) {sorted(extra)}")
+        name = check_name(require_str(data, "name", where))
+        source = require_str(data, "source", where)
+        kind = optional_str(data, "kind", name).lower() or KIND_HTML
         if kind not in KINDS:
             raise ValueError(f"figure '{name}': kind must be one of {sorted(KINDS)}")
-        width = _positive_int(data.get("width", _DEFAULT_WIDTH), "width", name)
-        height = _positive_int(data.get("height", _DEFAULT_HEIGHT), "height", name)
-        columns = _positive_int(data.get("columns", _DEFAULT_COLUMNS), "columns", name)
-        point = _positive_int(data.get("point", _DEFAULT_POINT), "point", name)
-        settle = _positive_int(
+        width = positive_int(data.get("width", _DEFAULT_WIDTH), "width", name)
+        height = positive_int(data.get("height", _DEFAULT_HEIGHT), "height", name)
+        columns = positive_int(data.get("columns", _DEFAULT_COLUMNS), "columns", name)
+        point = positive_int(data.get("point", _DEFAULT_POINT), "point", name)
+        settle = positive_int(
             data.get("settle_ms", _DEFAULT_SETTLE_MS), "settle_ms", name
         )
-        try:
-            scale = float(data.get("scale", _DEFAULT_SCALE))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"figure '{name}': scale must be a number") from exc
-        if scale <= 0:
-            raise ValueError(f"figure '{name}': scale must be positive")
+        scale = positive_scale(data.get("scale", _DEFAULT_SCALE), name)
         return cls(
             name=name,
             kind=kind,
@@ -150,54 +149,35 @@ class FigureSpec:
             width=width,
             height=height,
             scale=scale,
-            title=str(data.get("title") or ""),
+            title=optional_str(data, "title", name).strip(),
             columns=columns,
             point=point,
-            out=_check_output_name(name, str(data.get("out") or "")),
+            out=check_output_name(name, optional_str(data, "out", name)),
             settle_ms=settle,
         )
 
 
-def _require_str(data: dict[str, Any], key: str) -> str:
-    """A non-empty string field, or a ValueError naming it."""
-    value = str(data.get(key) or "").strip()
-    if not value:
-        raise ValueError(f"figure: '{key}' is required")
-    return value
+def _reject_duplicates(what: str, values: list[str]) -> None:
+    """Reject two figures that claim the same `name` or the same output file.
 
-
-def _check_output_name(name: str, out: str) -> str:
-    """Validate an explicit `out`: a bare file name inside the output directory.
-
-    A plan is data, and `out` is written under the run's `--out-dir`; a value
-    with a directory component, an absolute path or `..` would let a plan write
-    outside that directory (or overwrite an unrelated file). Rejected rather
-    than sanitized, so a mistake is visible instead of silently relocated.
+    A duplicated name is not cosmetic: `--only` selects by name, so it would
+    build both figures, `verify --plan` matches by name, so coverage would be
+    ambiguous, and the manifest would carry two records that a reader cannot
+    tell apart. A duplicated output file makes two figures fight over one PNG.
     """
-    if not out:
-        return out
-    candidate = Path(out)
-    if candidate.is_absolute() or candidate.parent != Path("."):
-        raise ValueError(f"figure '{name}': out must be a bare file name, got '{out}'")
-    return out
+    duplicates = sorted({value for value in values if values.count(value) > 1})
+    if duplicates:
+        raise ValueError(f"plan: duplicate {what} {duplicates}")
 
 
-def _check_name(name: str) -> str:
-    """A figure name must be usable as a file stem (no separators, no `..`)."""
-    if name in {".", ".."} or Path(name).parent != Path("."):
-        raise ValueError(f"figure: name must be a bare identifier, got '{name}'")
-    return name
-
-
-def _positive_int(value: Any, key: str, name: str) -> int:
-    """A positive integer field, or a ValueError naming it."""
-    try:
-        number = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"figure '{name}': {key} must be an integer") from exc
-    if number <= 0:
-        raise ValueError(f"figure '{name}': {key} must be positive")
-    return number
+def _located(plan_path: Path, message: str) -> str:
+    """Prefix a plan error with the plan file, without saying `plan` twice."""
+    label = f"plan '{plan_path}'"
+    if message.startswith(label):
+        return message
+    if message.startswith("plan: "):
+        return f"{label}: {message[len('plan: ') :]}"
+    return f"{label}: {message}"
 
 
 @dataclass(frozen=True)
@@ -221,17 +201,17 @@ class ShotPlan:
         own keys win.
 
         Raises:
-            ValueError: when `figures` is missing/empty, a spec is invalid, or
-                two figures ask for the same output file.
+            ValueError: when `figures` is missing/empty, a spec is invalid, two
+                figures share a name, or two figures ask for the same output
+                file.
         """
-        base = Path(data.get("base_dir") or ".")
-        if not base.is_absolute():
-            # A relative base_dir is relative to the plan file, not to the
-            # caller's CWD, so a plan and its sources travel together.
-            base = Path(base_dir) / base
+        base = plan_base(data.get("base_dir"), base_dir)
         raw_defaults = data.get("defaults") or {}
         if not isinstance(raw_defaults, dict):
             raise ValueError("plan: 'defaults' must be a mapping")
+        extra = set(raw_defaults) - FIGURE_KEYS
+        if extra:
+            raise ValueError(f"plan: unknown key(s) in 'defaults' {sorted(extra)}")
         raw_figures = data.get("figures")
         if not isinstance(raw_figures, list) or not raw_figures:
             raise ValueError("plan: 'figures' must be a non-empty list")
@@ -240,11 +220,13 @@ class ShotPlan:
             if not isinstance(raw, dict):
                 raise ValueError(f"plan: figures[{index}] must be a mapping")
             merged = {**raw_defaults, **raw}
-            specs.append(FigureSpec.from_dict(merged).with_source_dir(base))
-        outs = [s.output_name() for s in specs]
-        duplicates = sorted({name for name in outs if outs.count(name) > 1})
-        if duplicates:
-            raise ValueError(f"plan: duplicate output file(s) {duplicates}")
+            specs.append(
+                FigureSpec.from_dict(
+                    merged, where=figure_label(index, merged)
+                ).with_source_dir(base)
+            )
+        _reject_duplicates("figure name(s)", [s.name for s in specs])
+        _reject_duplicates("output file name(s)", [s.output_name() for s in specs])
         return cls(figures=tuple(specs), base_dir=base)
 
     @classmethod
@@ -253,15 +235,33 @@ class ShotPlan:
 
         The base directory defaults to the plan file's own directory, so sources
         are written relative to the plan and the set travels with it.
+
+        Every failure here is a *bad input* (exit code 2 via `cli_support`), so
+        it is raised as a `ValueError` that names the file and the position:
+        a bare `JSONDecodeError` message does not say which plan was read.
         """
         plan_path = Path(path)
-        if plan_path.suffix.lower() == ".toml":
-            data = tomllib.loads(plan_path.read_text(encoding="utf-8"))
-        else:
-            data = json.loads(plan_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            raise ValueError("plan: top level must be a mapping")
-        return cls.from_dict(data, base_dir=plan_path.parent)
+        suffix = plan_path.suffix.lower()
+        if suffix not in {".toml", ".json"}:
+            raise ValueError(
+                f"plan '{plan_path}': unsupported format "
+                f"'{suffix or plan_path.name}', expected .toml or .json"
+            )
+        try:
+            text = plan_path.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise ValueError(f"plan '{plan_path}': file not found") from exc
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"plan '{plan_path}': not valid UTF-8") from exc
+        except OSError as exc:
+            raise ValueError(
+                f"plan '{plan_path}': cannot read ({exc.strerror or exc})"
+            ) from exc
+        try:
+            data = parse_plan(text, plan_path, suffix)
+            return cls.from_dict(data, base_dir=plan_path.parent)
+        except ValueError as exc:
+            raise ValueError(_located(plan_path, str(exc))) from exc
 
     def to_dict(self) -> dict[str, Any]:
         """A JSON-ready view of the plan (round-trips `from_dict`)."""

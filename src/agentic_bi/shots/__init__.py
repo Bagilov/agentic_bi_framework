@@ -10,8 +10,9 @@ the figure set a first-class, reproducible object:
   every flag, so a figure is byte-reproducible on any machine with a browser;
 * a **terminal card** builder (`shots_terminal`) turns captured CLI text into a
   deterministic card — wrapping and sizing happen in Python, not in the browser;
-* a **manifest** (`shots_manifest`) records each PNG's size, hash and parameters,
-  and `verify` re-checks them, so a stale or hand-edited figure is caught.
+* a **manifest** (`shots_manifest`, written by `shots_store`) records each
+  figure's status, size and hash, and `verify` re-checks them, so a stale,
+  hand-edited or never-built figure is caught.
 
 Typical use:
 
@@ -33,12 +34,14 @@ from __future__ import annotations
 
 from agentic_bi.shots.shots_build import BuildResult, build_shots
 from agentic_bi.shots.shots_manifest import (
+    STATUS_FAILED,
+    STATUS_OK,
+    STATUS_SKIPPED,
+    STATUSES,
     RenderRecord,
     ShotManifest,
-    read_manifest,
     sha256_file,
     verify_manifest,
-    write_manifest,
 )
 from agentic_bi.shots.shots_render import (
     BrowserNotFound,
@@ -46,6 +49,7 @@ from agentic_bi.shots.shots_render import (
     render_html_file,
     render_html_string,
 )
+from agentic_bi.shots.shots_store import read_manifest, write_manifest
 from agentic_bi.shots.shots_terminal import build_terminal_html
 from agentic_bi.shots.shots_types import (
     KIND_HTML,
@@ -59,6 +63,10 @@ __all__ = [
     "KINDS",
     "KIND_HTML",
     "KIND_TERMINAL",
+    "STATUSES",
+    "STATUS_FAILED",
+    "STATUS_OK",
+    "STATUS_SKIPPED",
     "BrowserNotFound",
     "BuildResult",
     "FigureSpec",
