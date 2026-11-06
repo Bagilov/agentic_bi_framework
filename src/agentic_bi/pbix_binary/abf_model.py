@@ -183,16 +183,29 @@ def _strip_nul(text: str) -> str:
     return text.replace("\x00", "")
 
 
+def _header_int(root: ET.Element, tag: str) -> int:
+    """Read a required integer header field; a corrupt header is a `ValueError`."""
+    text = root.findtext(tag)
+    if text is None:
+        raise ValueError(f"abf header: field '{tag}' is missing")
+    try:
+        return int(text)
+    except ValueError:
+        raise ValueError(
+            f"abf header: field '{tag}': expected integer, got {text!r}"
+        ) from None
+
+
 def parse_header(buf: bytes) -> ABFHeader:
     """Parse the `BackupLogHeader` XML page at [72:4096] of a decompressed ABF."""
     xml = _strip_nul(buf[HEADER_START:HEADER_END].decode("utf-16", "ignore"))
     root = ET.fromstring(xml)
     return ABFHeader(
         root=root,
-        vdir_offset=int(root.findtext(_HEADER_OFFSET)),
-        vdir_size=int(root.findtext(_HEADER_SIZE)),
-        files=int(root.findtext(_HEADER_FILES)),
-        data_offset=int(root.findtext(_HEADER_DATA)),
+        vdir_offset=_header_int(root, _HEADER_OFFSET),
+        vdir_size=_header_int(root, _HEADER_SIZE),
+        files=_header_int(root, _HEADER_FILES),
+        data_offset=_header_int(root, _HEADER_DATA),
         object_id=root.findtext("ObjectID") or "",
     )
 
