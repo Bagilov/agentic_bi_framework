@@ -18,7 +18,6 @@ mistakes cannot come back unnoticed.
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
@@ -290,14 +289,13 @@ def test_runtime_script_data_is_declared_as_package_data() -> None:
     assert "_engine_build.ps1" in package_data
 
 
-def test_mypy_runs_in_ci_with_a_baseline_ratchet() -> None:
-    """Stage 3: a type checker runs in CI, report-only but observably pinned.
+def test_mypy_runs_in_ci_as_a_blocking_gate() -> None:
+    """The type checker runs in CI and blocks on any error.
 
-    The step deliberately does not use `continue-on-error`; instead it compares
-    the observed error count to `MYPY_BASELINE` and fails when the count grows,
-    so a regression (or a silently zero-target run) cannot read as success. The
-    assertions below are scoped to the `mypy` step so a flag somewhere else in
-    the workflow cannot satisfy them.
+    `src` is clean, so the former `MYPY_BASELINE` ratchet is gone: the step runs
+    a plain `mypy`, and a non-zero exit (an error, or a run that produced no
+    result at all) fails the build. The assertions are scoped to the `mypy` step
+    so a flag somewhere else in the workflow cannot satisfy them.
     """
     mypy = _pyproject()["tool"]["mypy"]
     assert mypy["python_version"] == "3.10"
@@ -305,20 +303,15 @@ def test_mypy_runs_in_ci_with_a_baseline_ratchet() -> None:
     assert mypy["ignore_missing_imports"] is True
 
     step = _step_running("mypy")
-    # The ratchet is the observable contract: a baseline is declared and the
-    # step compares against it, rather than being unconditionally non-blocking.
-    assert "MYPY_BASELINE" in step, "the mypy step must declare a tracked baseline"
-    assert "continue-on-error" not in step, (
-        "the ratchet must be able to fail; report-only comes from the non-zero "
-        "baseline, not from a blanket continue-on-error"
+    # Blocking means the step's exit code is the checker's: no baseline to
+    # compare against, and nothing that swallows or re-derives that code.
+    assert "MYPY_BASELINE" not in step, "the ratchet is retired; mypy is the gate"
+    assert "continue-on-error" not in step, "the gate must be able to fail"
+    assert "set +e" not in step, "the checker's exit code must reach the job"
+    assert "tee" not in step and "sed" not in step, (
+        "the step must not parse mypy output; a plain run is the contract"
     )
-    # A declared baseline that is never compared would make the step a no-op.
-    baseline = re.search(r"MYPY_BASELINE:\s*\"?(\d+)\"?", step)
-    assert baseline, "the mypy step must declare a numeric MYPY_BASELINE"
-    assert re.search(r"-gt\s+\"?\$MYPY_BASELINE", step), (
-        "the baseline must bound a comparison, not just be echoed"
-    )
-    # And the checker itself must be bounded, so the baseline is reproducible.
+    # And the checker itself must be bounded, so the verdict is reproducible.
     dev = _project()["optional-dependencies"]["dev"]
     mypy_req = next(d for d in dev if _requirement_name(d) == "mypy")
     assert "<" in mypy_req, f"the mypy requirement must be bounded: {mypy_req!r}"
