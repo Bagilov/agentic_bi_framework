@@ -8,19 +8,29 @@ which on a Report Server causes a render error ("Could not load data...").
 
 The donor model can be supplied as a registry dict or loaded from a JSON file.
 If none is given, `EXAMPLE_REGISTRY` (a neutral sample) is used so the validator
-and tests run without a donor or network. Build a registry for your own donor
-with `build_registry(alias_to_entity)` or by inspecting the donor layout.
+and tests run without a donor or network. Build a registry for your own donor by
+inspecting its layout/model; an example lives in `examples/donor_registry.json`.
+
+CLI:
+    python -m agentic_bi.validate_pbix output_files/my_dashboard.pbix
+    python -m agentic_bi.validate_pbix board.pbix --registry donor.json
+
+CLI exit codes (see :mod:`agentic_bi.cli_support`): 0 when the layout matches the
+registry, 1 when it does not (the validation ran and found problems), 2 on a bad
+input (missing/unreadable `.pbix` or registry JSON).
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import logging
+import os
+import sys
 from pathlib import Path
 
 import agentic_bi.paths as paths
 
-logger = logging.getLogger(__name__)
+PROG = "agentic_bi.validate_pbix"
 
 # ─── Neutral example model (shape: table -> {"columns": [...], "measures": [...]}) ──
 # Deliberately donor-free: the names mirror the sample skeleton in
@@ -157,14 +167,105 @@ def validate_pbix(path: Path, registry: dict | None = None) -> list[str]:
     return validate_layout(layout, registry)
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    import sys
+def _shown(path: str | Path) -> str:
+    """Return `path` for a message: relative to CWD, never an absolute path."""
+    p = Path(path)
+    return str(p) if not p.is_absolute() else os.path.relpath(p, Path.cwd())
 
-    p = sys.argv[1] if len(sys.argv) > 1 else (paths.output_dir("sample.pbix"))
-    reg = load_registry(sys.argv[2]) if len(sys.argv) > 2 else None
-    problems = validate_pbix(Path(p), reg)
-    if problems:
-        print(f"{len(problems)} problems: ", " ; ".join(problems))
-        sys.exit(1)
-    print("OK: layout matches the donor model")
+
+def _console_safe() -> None:
+    """Keep a non-UTF-8 console (Windows cp1251/cp866) from raising on output."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):  # a closed/replaced stream is not fatal
+            pass
+
+
+def _layout_counts(layout: dict) -> tuple[int, int]:
+    """Return (pages, visuals) for the summary line."""
+    sections = layout.get("sections") or []
+    pages = len(sections) if isinstance(sections, list) else 0
+    visuals = sum(
+        len(s.get("visualContainers") or []) for s in sections if isinstance(s, dict)
+    )
+    return pages, visuals
+
+
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import (
+        EXIT_BAD_INPUT,
+        EXIT_FAILED,
+        EXIT_OK,
+        fail,
+        run_boundary,
+    )
+    from agentic_bi.rebuild import _extract_layout
+
+    _console_safe()
+    ap = argparse.ArgumentParser(
+        prog=PROG,
+        description="Validate a .pbix layout against the donor model registry.",
+    )
+    ap.add_argument(
+        "pbix",
+        nargs="?",
+        default=str(paths.output_dir("sample.pbix")),
+        help="produced .pbix to check (default: output_files/sample.pbix)",
+    )
+    ap.add_argument(
+        "--registry",
+        default=None,
+        metavar="JSON",
+        help="donor registry {table: {columns, measures}} "
+        "(default: the built-in sample model)",
+    )
+    args = ap.parse_args(argv)
+
+    def body() -> int:
+        src = Path(args.pbix)
+        if not src.is_file():
+            return fail(PROG, f"pbix not found: {_shown(src)}", EXIT_BAD_INPUT)
+        registry: dict | None = None
+        if args.registry:
+            if not Path(args.registry).is_file():
+                return fail(
+                    PROG,
+                    f"--registry not found: {_shown(args.registry)}",
+                    EXIT_BAD_INPUT,
+                )
+            try:
+                registry = load_registry(args.registry)
+            except json.JSONDecodeError as exc:
+                return fail(
+                    PROG,
+                    f"--registry {_shown(args.registry)}: invalid JSON ({exc})",
+                    EXIT_BAD_INPUT,
+                )
+        try:
+            layout, _encoding = _extract_layout(src)
+        except KeyError as exc:
+            return fail(
+                PROG,
+                f"{_shown(src)}: no Report/Layout part in the container ({exc})",
+                EXIT_BAD_INPUT,
+            )
+        problems = validate_layout(layout, registry)
+        pages, visuals = _layout_counts(layout)
+        for problem in problems:
+            print(f"  - {problem}")
+        status = "OK" if not problems else "FAILED"
+        print(
+            f"{PROG}: {pages} page(s), {visuals} visual(s), "
+            f"{len(problems)} problem(s) -> {status}"
+        )
+        return EXIT_OK if not problems else EXIT_FAILED
+
+    return run_boundary(body, prog=PROG)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
