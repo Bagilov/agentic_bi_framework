@@ -10,6 +10,9 @@ Results:
   - a summary registry across ALL boards -> `<output_dir>/pbix_analysis/index.json`,
     where `output_dir` comes from `reportserver_diagnostics_config.json`.
 
+Collection (catalog discovery, download, batch run) is owned here; what is
+computed from one downloaded file lives in `pbix_report.AnalysisMixin`.
+
 Authentication is Windows-integrated Negotiate (spnego), no password.
 
 CLI:
@@ -23,34 +26,32 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
+from agentic_bi.reportserver.catalog import catalog_values, slug
 from agentic_bi.reportserver.diagnostics import NegotiateSession, load_config
 from agentic_bi.reportserver.odata import odata_quote
 from agentic_bi.reportserver.pbix_index import IndexMixin
+from agentic_bi.reportserver.pbix_report import AnalysisMixin
+from agentic_bi.reportserver.reportserver_client import config_str, config_str_list
+
+__all__ = ["PbiRsBulk", "main"]
 
 logger = logging.getLogger(__name__)
 
 
-def _slug(path: str) -> str:
-    s = path.replace("\\", "/").rsplit("/", 1)[-1]
-    s = re.sub(r"[^\w\-.]+", "_", s, flags=re.UNICODE).strip("_")
-    return s[:80].rstrip(".") or "board"
-
-
-class PbiRsBulk(IndexMixin):
+class PbiRsBulk(IndexMixin, AnalysisMixin):
     """Orchestrator: catalog -> download .pbix -> lineage + antipatterns."""
 
-    def __init__(self, cfg: dict | None = None) -> None:
-        self.cfg = cfg or load_config()
-        self.server = self.cfg.get("server", "")
-        self.base = self.cfg.get("base_path", "/reportserver")
-        self.api = self.cfg.get("api_prefix", "/api/v2.0")
+    def __init__(self, cfg: dict[str, object] | None = None) -> None:
+        self.cfg = cfg if cfg is not None else load_config()
+        self.server = config_str(self.cfg, "server", "")
+        self.base = config_str(self.cfg, "base_path", "/reportserver")
+        self.api = config_str(self.cfg, "api_prefix", "/api/v2.0")
         self.net = NegotiateSession(host=self.server, timeout=300)
-        self.report_out = Path(self.cfg.get("output_dir")) / "pbix_analysis"
+        out_dir = config_str(self.cfg, "output_dir", "output_files/rs_diagnostics")
+        self.report_out = Path(out_dir) / "pbix_analysis"
         self.skip_ap = False
         self.keep_pbix = False
         self.only_filter: list[str] | None = None
@@ -70,7 +71,7 @@ class PbiRsBulk(IndexMixin):
             if r.status_code != 200:
                 logger.warning("Catalog %s -> HTTP %s", root, r.status_code)
                 continue
-            for it in r.json().get("value", []):
+            for it in catalog_values(r.json(), root):
                 if it.get("Type") == "PowerBIReport":
                     if it.get("Hidden") and not self.cfg.get("include_hidden", True):
                         continue
@@ -94,29 +95,6 @@ class PbiRsBulk(IndexMixin):
             return None
         dest.write_bytes(r.content)
         return dest
-
-    # --- analyze one file -------------------------------------------------
-    def analyze(self, pbix: Path) -> dict:
-        from agentic_bi.lineage.pbi_lineage import PbiLineage
-
-        with PbiLineage(str(pbix)) as lg:
-            lineage = lg.to_json()
-
-        result = {
-            "file": pbix.name,
-            "path": str(pbix),
-            "analyzed_at": datetime.now().isoformat(timespec="seconds"),
-            "lineage": lineage,
-        }
-        if not self.skip_ap:
-            try:
-                from agentic_bi.antipatterns.pbi_antipatterns import analyze_pbix
-
-                ap = analyze_pbix(str(pbix))
-                result["antipatterns"] = ap
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Antipatterns %s: %s", pbix.name, e)
-        return result
 
     # --- aggregation ------------------------------------------------------
     def run(self, roots: list[str], limit: int | None = None) -> list[dict]:
@@ -147,8 +125,8 @@ class PbiRsBulk(IndexMixin):
             if not iid or not item.get("Name"):
                 logger.warning("Skipping an item without Id/Name: %s", item.get("Path"))
                 continue
-            stem = f"{_slug(item['Name'])}_{iid[:8]}"
-            per = self.report_out / _slug(item["root"]) / f"{stem}.json"
+            stem = f"{slug(item['Name'])}_{iid[:8]}"
+            per = self.report_out / slug(item["root"]) / f"{stem}.json"
             if stem in done:
                 try:
                     results.append(json.loads(per.read_text(encoding="utf-8")))
@@ -156,7 +134,7 @@ class PbiRsBulk(IndexMixin):
                     pass
                 continue
             if self.keep_pbix:
-                pbix_dir = self.report_out / "sources_pbix" / _slug(item["root"])
+                pbix_dir = self.report_out / "sources_pbix" / slug(item["root"])
                 pbix_dir.mkdir(parents=True, exist_ok=True)
                 pbix = pbix_dir / f"{stem}.pbix"
             else:
@@ -205,71 +183,6 @@ class PbiRsBulk(IndexMixin):
                 if not self.keep_pbix and dest.exists():
                     dest.unlink()
         return results
-
-    def already_done(self) -> set[str]:
-        """Names of already-analyzed boards (to resume an interrupted run)."""
-        done: set[str] = set()
-        if self.report_out.exists():
-            for json_file in self.report_out.glob("*/[!_]*.json"):
-                done.add(json_file.stem)
-        return done
-
-    def reanalyze_local(self, keep_dir: Path) -> tuple[int, list[dict]]:
-        """Re-analyze local .pbix files (without a server), rewriting the board JSON.
-
-        Useful after a schema change (`to_json`) - to refresh source fields
-        (path/type) and rebuild a fresh drill index without re-downloading.
-
-        Args:
-            keep_dir: the saved-sources directory (sources_pbix/<root>).
-
-        Returns:
-            (number of successes, results)
-        """
-        ok = 0
-        results: list[dict] = []
-        # maps id(8) -> displayed name and server path from the catalog
-        id2name: dict[str, str] = {}
-        id2path: dict[str, str] = {}
-        for item in self.list_powerbi(self.cfg.get("roots", [])):
-            iid = str(item.get("Id") or "")
-            if not iid:
-                continue
-            id2name[iid[:8]] = item.get("Name") or "?"
-            id2path[iid[:8]] = item.get("Path")
-        for root_dir in sorted(keep_dir.iterdir()) if keep_dir.exists() else []:
-            if not root_dir.is_dir():
-                continue
-            root_key = (
-                "/" + root_dir.name
-                if not root_dir.name.startswith("/")
-                else root_dir.name
-            )
-            for pbix in sorted(root_dir.glob("*.pbix")):
-                stem = pbix.stem
-                try:
-                    res = self.analyze(pbix)
-                    res["root"] = root_key
-                    id8 = stem.split("_")[-1]
-                    res["name"] = id2name.get(id8) or (
-                        stem.rsplit("_", 1)[0] if "_" in stem else stem
-                    )
-                    # the server path (Report Server folder) matters more than the file name
-                    res["path"] = id2path.get(id8) or pbix.name
-                    per = self.report_out / _slug(root_key) / f"{stem}.json"
-                    per.parent.mkdir(parents=True, exist_ok=True)
-                    per.write_text(
-                        json.dumps(res, ensure_ascii=False, indent=2, default=str),
-                        encoding="utf-8",
-                    )
-                    results.append(res)
-                    ok += 1
-                except Exception as e:  # noqa: BLE001
-                    logger.error("reanalyze %s: %s", pbix.name, e)
-                    results.append(
-                        {"root": root_key, "name": pbix.stem, "error": str(e)}
-                    )
-        return ok, results
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -329,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Re-analyzed locally: {ok} boards\n  {idx}\n  {b.drill_path()}")
         return 0
 
-    roots = args.roots or b.cfg.get("roots", [])
+    roots = args.roots or config_str_list(b.cfg, "roots")
     results = b.run(roots, args.limit)
     b.save_drill(results)
     idx = b.finalize(results)

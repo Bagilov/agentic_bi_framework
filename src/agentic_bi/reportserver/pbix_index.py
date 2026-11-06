@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 
 
 class IndexMixin:
+    """Index building over ready board results.
+
+    `report_out` is provided by the concrete orchestrator (see `PbiRsBulk`).
+    """
+
+    report_out: Path
+
+    def already_done(self) -> set[str]:
+        """Names of already-analyzed boards (to resume an interrupted run)."""
+        done: set[str] = set()
+        if self.report_out.exists():
+            for json_file in self.report_out.glob("*/[!_]*.json"):
+                done.add(json_file.stem)
+        return done
+
     def build_index(self, results: list[dict]) -> dict:
         """Summary registry across all boards (for index.json)."""
         rows = []

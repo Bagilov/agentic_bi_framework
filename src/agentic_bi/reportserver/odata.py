@@ -9,6 +9,11 @@ back at a page it already served.
 A single-entity response (`CatalogItems(id)`) is the object itself, not wrapped in
 `value`; it is returned as one record.
 
+A **failed** read is not an entity. `fetch_json` returning `None` (or a response
+that could not be read at all) ends the walk; treating the failure as `{}` made
+every unreadable root look like one item of type `Unknown`, so a 401 or a 500 was
+reported as `total: 1` with exit 0.
+
 Public API:
     odata_quote(value) -> str
     walk_values(fetch_json, url, params=None, paginate=True) -> list[dict]
@@ -21,7 +26,8 @@ from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
-FetchJson = Callable[..., dict]
+#: One page of JSON, or None when the request failed or the body was not JSON.
+FetchJson = Callable[..., "dict | None"]
 
 
 def odata_quote(value: object) -> str:
@@ -43,8 +49,8 @@ def walk_values(
     """Read the records of an OData entity set.
 
     Args:
-        fetch_json: a callable `(url, params) -> dict` returning the parsed JSON
-            of one page (an empty dict on any error).
+        fetch_json: a callable `(url, params) -> dict | None` returning the parsed
+            JSON of one page, or None when that page could not be read.
         url: the first page URL.
         params: query parameters for the first request only (the `nextLink`
             already carries the full query string).
@@ -59,11 +65,18 @@ def walk_values(
     seen: set[str] = set()
     while next_url:
         j = fetch_json(next_url, next_params)
+        if j is None:
+            # The page could not be read; stop instead of inventing a record.
+            break
         if isinstance(j, dict):
             value = j.get("value")
             # A collection page carries `value`; a single-item response is the
-            # object itself.
-            out.extend(value if isinstance(value, list) else [j])
+            # object itself. An empty object is neither: it is a failed read that
+            # a caller did not normalise to None.
+            if isinstance(value, list):
+                out.extend(value)
+            elif j:
+                out.append(j)
             link = j.get("@odata.nextLink")
         else:
             link = None

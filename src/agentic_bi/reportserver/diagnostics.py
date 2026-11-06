@@ -30,6 +30,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from agentic_bi.cli_support import run_boundary
 from agentic_bi.reportserver.odata import odata_quote, walk_values
 from agentic_bi.reportserver.reportserver_client import (  # noqa: F401
     CONFIG_FILE,
@@ -38,6 +39,10 @@ from agentic_bi.reportserver.reportserver_client import (  # noqa: F401
     _require_server_deps,
     _sanitize,
     build_json_name,
+    config_bool,
+    config_float,
+    config_str,
+    config_str_list,
     load_config,
     result_out_path,
 )
@@ -45,17 +50,26 @@ from agentic_bi.reportserver.reportserver_client import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+# Size exception (>300 lines): the catalog walk, its summary and the CLI are one
+# report; the summary fields are derived from the walk and keeping them apart
+# hid a "0 items" that meant "the server refused the request".
+
+
 class ReportServerDiagnostics:
     """Diagnostics of the Power BI Report Server dashboard catalog via the OData API."""
 
-    def __init__(self, cfg: dict | None = None) -> None:
-        self.cfg = cfg or load_config()
-        self.base = self.cfg.get("base_path", "/reportserver")
-        self.api = self.cfg.get("api_prefix", "/api/v2.0")
+    def __init__(self, cfg: dict[str, object] | None = None) -> None:
+        self.cfg = cfg if cfg is not None else load_config()
+        self.base = config_str(self.cfg, "base_path", "/reportserver")
+        self.api = config_str(self.cfg, "api_prefix", "/api/v2.0")
         self.net = NegotiateSession(
-            host=self.cfg.get("server", ""), timeout=self.cfg.get("timeout", 60)
+            host=config_str(self.cfg, "server", ""),
+            timeout=config_float(self.cfg, "timeout", 60.0),
         )
-        self.include_hidden = bool(self.cfg.get("include_hidden", True))
+        self.include_hidden = config_bool(self.cfg, "include_hidden", True)
+        #: URLs that could not be read during the current `run()`; a non-empty
+        #: list means the catalog was only partly visible.
+        self.fetch_errors: list[str] = []
 
     def _api_url(
         self, entity: str, item_id: str | None = None, action: str | None = None
@@ -67,7 +81,15 @@ class ReportServerDiagnostics:
             path += f"/{action}"
         return f"https://{self.cfg.get('server')}{self.base}{path}"
 
-    def _get_json(self, url: str, params: dict | None = None) -> dict:
+    def _get_json(self, url: str, params: dict | None = None) -> dict | None:
+        """One page of JSON, or None when it cannot be read.
+
+        `None` (not `{}`) is the failure signal: an empty dict is a legitimate
+        body shape, so returning it on a 401/500 made `walk_values` report the
+        failed root as one item of type `Unknown` and every entity set as
+        `count: 1`. The failure is also recorded, so `run()` can report it and
+        the CLI can exit non-zero instead of claiming a clean, empty server.
+        """
         r = self.net.get(url, params)
         if r.status_code == 200 and "json" in r.headers.get("Content-Type", ""):
             try:
@@ -78,14 +100,17 @@ class ReportServerDiagnostics:
                     r.headers.get("Content-Type"),
                     url,
                 )
-                return {}
+                self.fetch_errors.append(f"{url}: body is not JSON")
+                return None
         if r.status_code != 200:
             logger.warning("HTTP %s for %s", r.status_code, url)
+            self.fetch_errors.append(f"{url}: HTTP {r.status_code}")
         else:
             logger.warning(
                 "Non-JSON response (%s) for %s", r.headers.get("Content-Type"), url
             )
-        return {}
+            self.fetch_errors.append(f"{url}: non-JSON response")
+        return None
 
     def _get_values(
         self, url: str, params: dict | None = None, paginate: bool = True
@@ -141,7 +166,7 @@ class ReportServerDiagnostics:
     def entity_summary(self) -> dict:
         """Summary of configured server objects: subscriptions, schedules, favorites."""
         out: dict = {}
-        for ent in self.cfg.get("deep_links", []):
+        for ent in config_str_list(self.cfg, "deep_links"):
             try:
                 vals = self._get_values(
                     self._api_url(ent), {"$top": 500, "$select": "*"}
@@ -192,8 +217,13 @@ class ReportServerDiagnostics:
 
     # --- run --------------------------------------------------------------
     def run(self, roots: list[str] | None = None) -> list[dict]:
-        """Run diagnostics for each root. Returns results per root."""
-        roots = roots or self.cfg.get("roots", [])
+        """Run diagnostics for each root. Returns results per root.
+
+        A root that could not be read carries its failures in `fetch_errors`
+        both per result and in the summary count, so "0 items" is never
+        indistinguishable from "the server refused the request".
+        """
+        roots = roots or config_str_list(self.cfg, "roots")
         results: list[dict] = []
         for root in roots:
             items = self.list_root_items(root)
@@ -204,6 +234,9 @@ class ReportServerDiagnostics:
                 if det:
                     details_by_type[it.get("Type") or "Unknown"].extend(det)
             entity_summary = self.entity_summary()
+            errors = list(self.fetch_errors)
+            self.fetch_errors.clear()
+            summary = {**summary, "errors": len(errors)}
             result = {
                 "root": root,
                 "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -213,6 +246,7 @@ class ReportServerDiagnostics:
                     "include_hidden": self.include_hidden,
                 },
                 "summary": summary,
+                "fetch_errors": errors,
                 "items": items,
                 "details_by_type": {k: v for k, v in details_by_type.items()},
                 "server_objects": entity_summary,
@@ -245,7 +279,56 @@ def diag() -> ReportServerDiagnostics:
     return _diag
 
 
+def _body(args: argparse.Namespace) -> int:
+    """Command body: resolve the config, run the diagnostics, print per root."""
+    d = diag()
+    roots = args.roots or None
+    cfg_roots = config_str_list(d.cfg, "roots")
+    if roots:
+        cfg_roots = roots
+    if args.filter:
+        cfg_roots = [r for r in cfg_roots if args.filter.lower() in r.lower()]
+
+    try:
+        results = d.run(cfg_roots)
+    except Exception as e:  # noqa: BLE001 - a server failure is the result
+        logger.error("Diagnostics failed: %s", e)
+        return 1
+    failed = 0
+    for res in results:
+        root = res["root"]
+        s = res["summary"]
+        print(f"\n=== {root} ===")
+        print(
+            f"items: {s['total']} | folders: {s['folders']} | "
+            f"Power BI: {s['reports_powerbi']} | SSRS: {s['reports_ssrs']} | "
+            f"hidden: {s['hidden']}"
+        )
+        print("by type:", dict(s["by_type"]))
+        for err in res["fetch_errors"]:
+            print(f"read error: {err}", file=sys.stderr)
+        if res["fetch_errors"]:
+            failed += 1
+            print(
+                f"warning: {root}: {len(res['fetch_errors'])} request(s) could not "
+                "be read; the counts above cover only the visible part",
+                file=sys.stderr,
+            )
+        if s["hidden_items"]:
+            print("hidden items:")
+            for h in s["hidden_items"]:
+                print("   ", h.get("Path"), f"[{h.get('Type')}]")
+        if not args.no_json:
+            path = d.save(root, res)
+            print("JSON result:", path)
+    # A partly unreadable server is a negative result, not a clean run: exit 0
+    # used to be returned for a 401 as well, with `total: 1` invented by the
+    # failure-as-record bug in `walk_values`.
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point; a bad configuration is exit 2 with one stderr line."""
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     p = argparse.ArgumentParser(
         description="Diagnostics of Power BI Report Server dashboards"
@@ -256,38 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-json", action="store_true", help="do not save JSON results")
     p.add_argument("--filter", default=None, help="filter by catalog name (substring)")
     args = p.parse_args(argv)
-
-    d = diag()
-    roots = args.roots or None
-    cfg_roots = d.cfg.get("roots", [])
-    if roots:
-        cfg_roots = roots
-    if args.filter:
-        cfg_roots = [r for r in cfg_roots if args.filter.lower() in r.lower()]
-
-    try:
-        results = d.run(cfg_roots)
-        for res in results:
-            root = res["root"]
-            s = res["summary"]
-            print(f"\n=== {root} ===")
-            print(
-                f"items: {s['total']} | folders: {s['folders']} | "
-                f"Power BI: {s['reports_powerbi']} | SSRS: {s['reports_ssrs']} | "
-                f"hidden: {s['hidden']}"
-            )
-            print("by type:", dict(s["by_type"]))
-            if s["hidden_items"]:
-                print("hidden items:")
-                for h in s["hidden_items"]:
-                    print("   ", h.get("Path"), f"[{h.get('Type')}]")
-            if not args.no_json:
-                path = d.save(root, res)
-                print("JSON result:", path)
-        return 0
-    except Exception as e:  # noqa: BLE001
-        logger.error("Diagnostics failed: %s", e)
-        return 1
+    return run_boundary(lambda: _body(args), prog="agentic-bi-server")
 
 
 if __name__ == "__main__":
