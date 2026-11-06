@@ -29,9 +29,11 @@ Public API:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from agentic_bi.guest_task_script import remove_script, run_token
 from agentic_bi.guest_transport import (
     Deadline,
     GuestConfig,
@@ -41,6 +43,8 @@ from agentic_bi.guest_transport import (
 
 # Oracle verdicts (see `_engine_oracle.py`).
 VERDICTS = ("MODEL_LOADED", "NOT_MODEL_LOADED", "CRASH", "NOENGINE", "UI_ERROR")
+
+logger = logging.getLogger(__name__)
 
 _TASK_NAME = "agentic_bi_oracle"
 
@@ -61,15 +65,20 @@ class OracleResult:
         return self.verdict == "MODEL_LOADED"
 
 
-def _oracle_script(
-    config: GuestConfig, dest: str, log_file: str, hold: int, open_timeout: int
-) -> str:
-    """The interactive-task body that runs `_engine_oracle.py` and logs the verdict.
+def _oracle_script(config: GuestConfig, dest: str, hold: int, open_timeout: int) -> str:
+    """The interactive-task body that runs `_engine_oracle.py`.
 
-    `dest`/`log_file` derive from the `.pbix` file name, which is not necessarily
+    `dest` derives from the `.pbix` file name, which is not necessarily
     operator-controlled, so every value is rendered with `ps_quote`: a quote in a
     file name would otherwise close the literal and inject a statement into the
     highest-privilege interactive task.
+
+    The body does **not** write the log. The task runner is the single owner of
+    that file and captures this child's stdout and stderr; a second `Out-File`
+    on the same path was refused by the runner's open handle (`FileShare.Read`),
+    and for the oracle that was fatal: the `RESULT [VERDICT]` line never reached
+    the log, so `_parse_verdict` returned None and `run_oracle` raised "no oracle
+    verdict". `2>&1` stays, so native stderr still reaches the runner's redirect.
     """
     env_lines = [f"$env:PBI_RS_ORACLE_OPEN_TIMEOUT = {ps_quote(open_timeout)}"]
     if config.desktop:
@@ -78,11 +87,10 @@ def _oracle_script(
         env_lines.append(f"$env:PBI_RS_WS_ROOT = {ps_quote(config.ws_root)}")
     oracle = f"{config.root}\\src\\agentic_bi\\_engine_oracle.py"
     return (
-        f"$log = {ps_quote(log_file)}\n"
-        + "\n".join(env_lines)
+        "\n".join(env_lines)
         + "\n"
         + f"& {ps_quote(config.python)} {ps_quote(oracle)} {ps_quote(dest)} {int(hold)} "
-        "*> $log\n"
+        "2>&1\n"
     )
 
 
@@ -119,27 +127,41 @@ def run_oracle(
             "AGENTIC_BI_GUEST_USER and AGENTIC_BI_GUEST_PASSWORD"
         )
     pbix = Path(pbix)
-    dest = f"{config.out}\\{dest_name or pbix.name}"
-    log_file = f"{config.out}\\oracle_{pbix.stem}.log"
-    marker_file = f"{config.out}\\oracle_{pbix.stem}.done"
+    uploaded = dest_name or pbix.name
+    # A per-run destination: two concurrent oracle runs on the same `.pbix` used
+    # to upload onto one shared guest file, so one run could open the other's
+    # half-written copy. The log and marker are per-run inside `run_task`.
+    dest = f"{config.out}\\{Path(uploaded).stem}.{run_token()}.pbix"
     deadline = Deadline(timeout)
     transport = WinRMTransport(config)
     try:
+        # `[IO.Directory]::CreateDirectory` instead of `New-Item -Path`: the raw
+        # `-Path` here expanded `[`, `]` and `*` from the configured out dir as a
+        # wildcard pattern, and `New-Item` itself is not the right tool on Windows
+        # PowerShell 5.1. `CreateDirectory` is idempotent and has no wildcards.
         transport.ps(
-            f"New-Item -ItemType Directory -Force -Path {ps_quote(config.out)} | Out-Null"
+            "$ErrorActionPreference='Stop'\n"
+            f"[IO.Directory]::CreateDirectory({ps_quote(config.out)}) | Out-Null"
         )
         transport.push_file(pbix, dest, deadline)
         log, code = transport.run_task(
             name=_TASK_NAME,
-            script=_oracle_script(config, dest, log_file, hold, open_timeout),
-            log_path=log_file,
-            marker_path=marker_file,
+            script=_oracle_script(config, dest, hold, open_timeout),
             deadline=deadline,
             poll=15.0,
             limit_min=15,
         )
     finally:
-        transport.close()
+        # The uploaded copy is this run's own input; nothing reads it after the
+        # verdict, so it is removed even when the task failed (the log, which is
+        # the failure evidence, is kept by `run_task`). A whole `.pbix` per run
+        # otherwise accumulates in the guest's output directory.
+        try:
+            transport.ps("$ErrorActionPreference='Stop'\n" + remove_script(dest))
+        except Exception:  # noqa: BLE001 - cleanup must not mask the verdict
+            logger.warning("could not remove the uploaded oracle copy %s", dest)
+        finally:
+            transport.close()
     if code != 0:
         raise RuntimeError(f"oracle task exited {code}; log:\n{log}")
 

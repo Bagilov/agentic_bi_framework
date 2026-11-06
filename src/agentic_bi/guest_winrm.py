@@ -3,7 +3,9 @@
 The guest is a UTM VM that may be booting, restarting, or whose engine holds
 files open, so a one-shot call is never a readiness signal. This channel keeps a
 single lazily-opened WinRM session, retries transient transport faults with a
-fresh session, and exposes the small text helpers built on top of it.
+fresh session, and exposes the small text helpers built on top of it. Every
+script passes through `ps`, which refuses one whose `-EncodedCommand` payload
+would exceed `MAX_ENCODED_COMMAND` instead of letting the guest truncate it.
 
 Public API:
     new_session(config)   - one bounded WinRM session
@@ -14,7 +16,6 @@ Public API:
 
 from __future__ import annotations
 
-import base64
 import logging
 import time
 
@@ -26,6 +27,15 @@ from agentic_bi.guest_types import (
     ps_quote,
 )
 from agentic_bi.guest_vm import VMController
+from agentic_bi.guest_winrm_commands import (
+    BOM_BYTES,
+    check_size,
+    chunk_budget,
+    parent_dir,
+    replace_script,
+    split_payload,
+    write_chunk_script,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +126,15 @@ class WinRMChannel:
         A freshly booted (or restarted) guest can accept a WinRM shell yet fail the
         NTLM handshake, so a one-shot call is not a reliable readiness signal. Each
         retry drops the cached session and backs off briefly.
+
+        The size guard runs before the first attempt and is not retried: an
+        oversized command fails identically every time, and the guest would have
+        run a truncated script instead of raising.
+
+        Raises:
+            StageError: when the encoded command exceeds `MAX_ENCODED_COMMAND`.
         """
+        check_size(script)
         errors = _transient_errors()
         last: BaseException | None = None
         for attempt in range(1, attempts + 1):
@@ -164,25 +182,103 @@ class WinRMChannel:
             raise ChainTimeout("vm: WinRM did not become ready")
         return note
 
-    def write_text(self, guest_path: str, text: str) -> None:
-        """Write `text` to `guest_path` (base64, so quoting cannot break it).
+    @staticmethod
+    def _chunks(data: bytes, budget: int) -> list[bytes]:
+        """Split encoded UTF-8 `data`; the rules live in `split_payload`."""
+        return split_payload(data, budget)
 
-        The content is base64-encoded, so it cannot terminate the script; the
-        path is `ps_quote`d as usual.
+    def _discard(self, quoted_tmp: str) -> None:
+        """Best-effort removal of a half-written temp file; never raises."""
+        try:
+            self.ps(
+                "$ErrorActionPreference='Stop'\n"
+                f"if (Test-Path -LiteralPath {quoted_tmp}) "
+                f"{{ Remove-Item -LiteralPath {quoted_tmp} -Force }}\n"
+            )
+        except Exception:  # noqa: BLE001 - the original write error is what matters
+            logger.warning("could not discard the partial write %s", quoted_tmp)
+
+    def write_text(self, guest_path: str, text: str) -> None:
+        """Write `text` to `guest_path` as UTF-8: atomically, in small chunks.
+
+        Chunking is required, not cosmetic: a single base64 blob for a script of
+        a couple of kilobytes already exceeds the guest's encoded-command limit
+        and the write fails with "The command line is too long". The path is
+        `ps_quote`d as usual.
+
+        **The first chunk carries a UTF-8 BOM, and only the first one.** Windows
+        PowerShell 5.1 reads a `-File` script as ANSI (the current code page)
+        unless it starts with a BOM, so a Cyrillic title or path in the payload
+        was silently mangled while the `.pbix` was still built. Later chunks must
+        not repeat the BOM (`Add-Content -Encoding UTF8` writes one on *every*
+        call, which put U+FEFF in the middle of the source and broke parsing), so
+        they append with a preamble-less `UTF8Encoding`.
+
+        The content goes to `<path>.tmp` and is moved onto `<path>` at the end, so
+        a write that dies half-way cannot leave a truncated `.ps1` behind for the
+        guest to execute. An empty `text` still creates an empty (BOM-less) file.
+
+        Both the chunk writes and the final move are sized against the same
+        encoded-command cap, but separately: the chunk budget is derived from the
+        real chunk template for this path, and the move is checked **up front**
+        on the exact command string that is sent — preamble included, because
+        those 30 characters are part of what the guest's command line carries.
+        A path that fits every chunk yet overflows the move would otherwise
+        upload every byte and only then fail, wasting the whole transfer.
+
+        Raises:
+            StageError: when `text` is not UTF-8 encodable (a lone surrogate), or
+                when the path is too long for any command to stay under the cap.
         """
-        b64 = base64.b64encode(text.encode("utf-16-le")).decode()
-        self.ps(
-            "$ErrorActionPreference='Stop'\n"
-            f"$b=[Convert]::FromBase64String('{b64}')\n"
-            "$t=[Text.Encoding]::Unicode.GetString($b)\n"
-            f"$d=Split-Path -Parent {ps_quote(guest_path)}\n"
-            "if ($d) { New-Item -ItemType Directory -Force -Path $d | Out-Null }\n"
-            f"Set-Content -Path {ps_quote(guest_path)} -Value $t -Encoding UTF8\n"
-        )
+        try:
+            data = text.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise StageError(
+                f"{guest_path}: text is not UTF-8 encodable "
+                f"({exc.reason} at index {exc.start}); a lone surrogate cannot be "
+                "written to the guest"
+            ) from exc
+        final = "$ErrorActionPreference='Stop'\n" + replace_script(guest_path)
+        check_size(final)
+        tmp = ps_quote(f"{guest_path}.tmp")
+        parent = parent_dir(guest_path)
+        if parent:
+            # `[IO.Directory]::CreateDirectory` instead of `New-Item -LiteralPath`:
+            # it is idempotent, has no wildcard semantics at all, and does not
+            # depend on a `-LiteralPath` parameter whose availability on Windows
+            # PowerShell 5.1 is in doubt (a missing parameter binding fails the
+            # whole staging stage).
+            self.ps(
+                "$ErrorActionPreference='Stop'\n"
+                f"[IO.Directory]::CreateDirectory({ps_quote(parent)}) | Out-Null\n"
+            )
+        pieces = self._chunks(data, chunk_budget(guest_path))
+        try:
+            if not pieces:
+                empty = (
+                    "$ErrorActionPreference='Stop'\n"
+                    f"[IO.File]::WriteAllBytes({tmp},(New-Object byte[] 0))\n"
+                    + replace_script(guest_path)
+                )
+                check_size(empty)
+                self.ps(empty)
+                return
+            offset = 0
+            for index, piece in enumerate(pieces):
+                blob = BOM_BYTES + piece if index == 0 else piece
+                self.ps(write_chunk_script(tmp, blob, offset=offset))
+                offset += len(blob)
+            self.ps(final)
+        except Exception:
+            self._discard(tmp)
+            raise
 
     def read_text(self, guest_path: str) -> str:
         """Read a small text file from the guest (empty string when missing)."""
         return self.ps(
-            f"if (Test-Path {ps_quote(guest_path)}) "
-            f"{{ Get-Content {ps_quote(guest_path)} -Raw }}"
+            f"if (Test-Path -LiteralPath {ps_quote(guest_path)}) "
+            f"{{ Get-Content -LiteralPath {ps_quote(guest_path)} -Raw }}"
         )
+
+
+__all__ = ["WinRMChannel", "new_session", "run_ps"]

@@ -44,36 +44,73 @@ class VMController:
         self.uuid = uuid
         self._has_utmctl = shutil.which("utmctl") is not None
 
+    def _target(self) -> str | None:
+        """The VM id to drive, or None when this controller is unconfigured.
+
+        The single place that decides whether a call may shell out, so `status`/
+        `start`/`stop` narrow one value instead of re-deriving `configured` and
+        still handing `None` to `utmctl`.
+        """
+        if not self._has_utmctl:
+            return None
+        return self.uuid or None
+
     @property
     def configured(self) -> bool:
         """True when both a VM id and the `utmctl` tool are present."""
-        return bool(self.uuid) and self._has_utmctl
+        return self._target() is not None
 
     def status(self) -> str:
-        """The VM status string ('started', 'stopped', ...) or 'unknown'."""
-        if not self.configured:
+        """The VM status string ('started', 'stopped', ...) or 'unknown'.
+
+        The call is time-boxed: `utmctl status` on a wedged VM otherwise blocks
+        the whole chain, and this runs inside `ensure_vm`, before any stage
+        deadline can help.
+        """
+        vm = self._target()
+        if vm is None:
             return "unknown"
         proc = subprocess.run(
-            ["utmctl", "status", self.uuid], capture_output=True, text=True
+            ["utmctl", "status", vm], capture_output=True, text=True, timeout=30
         )
         return (proc.stdout or "").strip() or "unknown"
 
     def start(self) -> None:
         """Start the VM in the background (utmctl blocks until it is booted)."""
-        if not self.configured or self.status() == "started":
+        vm = self._target()
+        if vm is None or self.status() == "started":
             return
         subprocess.Popen(
-            ["utmctl", "start", self.uuid],
+            ["utmctl", "start", vm],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        logger.info("requested VM start: %s", self.uuid)
+        logger.info("requested VM start: %s", vm)
 
-    def stop(self) -> None:
-        """Stop the VM (used by teardown when the chain started it)."""
-        if not self.configured or self.status() != "started":
-            return
-        subprocess.run(
-            ["utmctl", "stop", self.uuid], capture_output=True, text=True, timeout=180
+    def stop(self) -> bool:
+        """Stop the VM (used by teardown when the chain started it).
+
+        Returns:
+            True only when `utmctl` reported success. A non-zero exit is logged
+            as a warning and never as a completed teardown: the previous version
+            ignored the exit status, so a refused stop (a wedged VM, a lost
+            session) still wrote a success line into the chain result.
+
+        Raises:
+            subprocess.TimeoutExpired: when `utmctl` does not answer in time; the
+                chain catches it so the verdict survives.
+        """
+        vm = self._target()
+        if vm is None or self.status() != "started":
+            return False
+        proc = subprocess.run(
+            ["utmctl", "stop", vm], capture_output=True, text=True, timeout=180
         )
-        logger.info("stopped VM: %s", self.uuid)
+        if proc.returncode:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            logger.warning(
+                "utmctl stop %s failed (exit %s): %s", vm, proc.returncode, detail
+            )
+            return False
+        logger.info("stopped VM: %s", vm)
+        return True

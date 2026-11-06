@@ -35,8 +35,9 @@ import secrets
 import socket
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from agentic_bi.guest_types import Deadline, StageError, ps_quote
+from agentic_bi.guest_types import Deadline, GuestConfig, StageError, ps_quote
 from agentic_bi.guest_vm import host_reachable_ip
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,16 @@ class _SingleFileHandler(http.server.BaseHTTPRequestHandler):
 class StagingMixin:
     """Host->guest and guest->host file transfer, plus server teardown."""
 
+    if TYPE_CHECKING:
+        # The composed `WinRMTransport` inherits `config`/`ps` from `WinRMChannel`,
+        # but this mixin is checked on its own, so those members are declared here.
+        # The signatures are copied verbatim from `WinRMChannel` on purpose: an
+        # override that differs there would make the composed class's bases
+        # incompatible.
+        config: GuestConfig
+
+        def ps(self, script: str, *, attempts: int = 4) -> str: ...
+
     _servers: list[http.server.ThreadingHTTPServer]
 
     def _init_staging(self) -> None:
@@ -106,7 +117,9 @@ class StagingMixin:
         finally:
             probe.close()
 
-    def _serve(self, file_path: Path, token: str):
+    def _serve(
+        self, file_path: Path, token: str
+    ) -> tuple[http.server.ThreadingHTTPServer, int]:
         handler = functools.partial(
             _SingleFileHandler, file_path=file_path, token=token
         )
@@ -115,7 +128,7 @@ class StagingMixin:
         self._servers.append(server)
         return server, server.server_address[1]
 
-    def _stop_server(self, server) -> None:
+    def _stop_server(self, server: http.server.ThreadingHTTPServer) -> None:
         server.shutdown()
         server.server_close()
         if server in self._servers:
@@ -140,10 +153,14 @@ class StagingMixin:
             )
         finally:
             self._stop_server(server)
-            deadline.check("push")
+        # The budget is checked *after* the server is closed and outside the
+        # `finally`: a `check` inside it replaced a specific fetch error (an
+        # unreachable URL, a refused write) with a generic timeout whenever the
+        # clock had also run out, hiding the real cause.
+        deadline.check("push")
         actual = self.ps(
             "$ErrorActionPreference='Stop'\n"
-            f"(Get-FileHash {ps_quote(dest)} -Algorithm SHA256).Hash"
+            f"(Get-FileHash -LiteralPath {ps_quote(dest)} -Algorithm SHA256).Hash"
         )
         reported = [ln.strip().lower() for ln in actual.splitlines() if ln.strip()]
         if not reported:
@@ -165,11 +182,39 @@ class StagingMixin:
         *,
         chunk: int = 384 * 1024,
     ) -> int:
-        """Fetch `guest_path` to `local` as base64, chunked and deadline-bounded."""
-        raw_len = (
-            self.ps(f"(Get-Item {ps_quote(guest_path)}).Length").strip().splitlines()
+        """Fetch `guest_path` to `local` as base64, chunked and deadline-bounded.
+
+        `Get-Item` takes `-LiteralPath`, so a staged path containing `[`, `]` or
+        `*` is measured as the file it is instead of being read as a wildcard
+        pattern (which would fail with "no match" and abort the pull).
+
+        The size probe runs under `$ErrorActionPreference='Stop'` and an empty
+        answer is refused **before** `local` is written: a missing guest path
+        used to produce an empty stdout, a `0` total and a 0-byte local file,
+        which replaced the caller's previous good artifact while the stage still
+        reported success. Only an all-digit line is accepted as the size: a
+        warning line or a non-terminating error on stdout otherwise reached
+        `int()` and escaped as a bare `ValueError`, which the chain reported as
+        `error: ValueError: invalid literal ...` instead of naming the file.
+
+        Raises:
+            StageError: when the guest file is missing, empty or its size cannot
+                be read.
+        """
+        answer = self.ps(
+            "$ErrorActionPreference='Stop'\n"
+            f"(Get-Item -LiteralPath {ps_quote(guest_path)}).Length"
         )
-        total = int(raw_len[-1]) if raw_len else 0
+        digits = [
+            line.strip() for line in answer.splitlines() if line.strip().isdigit()
+        ]
+        total = int(digits[-1]) if digits else 0
+        if total <= 0:
+            raise StageError(
+                f"{guest_path}: the guest file is missing or empty, or its size "
+                f"is unreadable ({' '.join(answer.split())[:120]!r}); refusing to "
+                f"overwrite {Path(local).name}"
+            )
         out = bytearray()
         offset = 0
         while offset < total:
@@ -181,11 +226,22 @@ class StagingMixin:
                 f"$n=$fs.Read($b,0,{chunk});$fs.Close();"
                 f"[Convert]::ToBase64String($b,0,$n)"
             )
-            blob = base64.b64decode(b64.strip().splitlines()[-1] or "")
+            raw = b64.strip().splitlines()
+            if not raw:
+                # An empty answer is a short read; the length check after the
+                # loop turns it into a loud `StageError` instead of writing a
+                # truncated file (and instead of `IndexError` on `raw[-1]`).
+                break
+            blob = base64.b64decode(raw[-1] or "")
             if not blob:
                 break
             out += blob
             offset += len(blob)
+        if len(out) != total:
+            raise StageError(
+                f"{guest_path}: pulled {len(out)} of {total} B; refusing to write "
+                f"a truncated {Path(local).name}"
+            )
         local = Path(local)
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_bytes(bytes(out))

@@ -14,6 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from ctypes import wintypes
 
 # Desktop executable: prefer the RS build, fall back to the regular Desktop; can
@@ -63,24 +64,53 @@ def _kill() -> None:
     time.sleep(4)
 
 
-def _dialog() -> bool:
-    u = ctypes.windll.user32
-    found = [False]
+class _User32:
+    """Typed access to the `user32` calls the error-dialog probe needs.
 
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-    def cb(h, _l):
-        if not u.IsWindowVisible(h):
+    typeshed declares `windll`/`WINFUNCTYPE` only inside its `win32` platform
+    branch, so a host-side type check cannot see them. `CDLL`/`CFUNCTYPE` are
+    declared for every platform and are the same thing on 64-bit Windows (the
+    only target of Desktop RS): one calling convention covers both variants.
+    Every raw `ctypes` call is wrapped here, so the untyped FFI boundary stays
+    inside this class.
+    """
+
+    _enum_proc = ctypes.CFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+    def __init__(self) -> None:
+        self._dll = ctypes.CDLL("user32")
+
+    def is_visible(self, hwnd: int) -> bool:
+        return bool(self._dll.IsWindowVisible(hwnd))
+
+    def text_length(self, hwnd: int) -> int:
+        return int(self._dll.GetWindowTextLengthW(hwnd))
+
+    def window_text(self, hwnd: int, size: int) -> str:
+        buffer = ctypes.create_unicode_buffer(size)
+        self._dll.GetWindowTextW(hwnd, buffer, size)
+        return buffer.value
+
+    def enum_windows(self, proc: Callable[[int, int], bool]) -> None:
+        self._dll.EnumWindows(self._enum_proc(proc), 0)
+
+
+def _dialog() -> bool:
+    """True when a visible window whose title mentions "wrong" is open."""
+    user32 = _User32()
+    found = False
+
+    def on_window(hwnd: int, _param: int) -> bool:
+        nonlocal found
+        if not user32.is_visible(hwnd):
             return True
-        n = u.GetWindowTextLengthW(h)
-        if n:
-            b = ctypes.create_unicode_buffer(n + 1)
-            u.GetWindowTextW(h, b, n + 1)
-            if "wrong" in b.value.lower():
-                found[0] = True
+        length = user32.text_length(hwnd)
+        if length and "wrong" in user32.window_text(hwnd, length + 1).lower():
+            found = True
         return True
 
-    u.EnumWindows(cb, 0)
-    return found[0]
+    user32.enum_windows(on_window)
+    return found
 
 
 def _tables(ws: str) -> list[str]:

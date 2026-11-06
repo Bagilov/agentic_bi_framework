@@ -3,6 +3,9 @@
 Argument parsing, config overrides and the JSON verdict printer live here, so the
 orchestrator module stays focused on the chain and its verdict.
 
+Exit codes: 0 when the board is built (and, with `--oracle`, opened), 1 for any
+other verdict, 2 when the configuration is missing or unusable.
+
 Public API:
     main(argv) -> int   - run the chain once, print the JSON verdict
 """
@@ -15,7 +18,10 @@ import logging
 import sys
 from pathlib import Path
 
+from agentic_bi.cli_support import EXIT_BAD_INPUT, EXIT_FAILED, EXIT_OK, run_boundary
 from agentic_bi.guest_chain import ChainConfig, build_dashboard
+
+PROG = "agentic-bi-guest-dashboard"
 
 # (attribute, caster) applied from parsed args over the environment-derived config.
 _OVERRIDES: tuple[tuple[str, type], ...] = (
@@ -30,7 +36,7 @@ _OVERRIDES: tuple[tuple[str, type], ...] = (
 
 def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="agentic-bi-guest-dashboard",
+        prog=PROG,
         description=(
             "Build a test dashboard in the Windows guest (one terminating chain)."
         ),
@@ -58,7 +64,14 @@ def _apply_overrides(config: ChainConfig, args: argparse.Namespace) -> None:
         value = getattr(args, name)
         if value:
             setattr(config, name, caster(value))
-    if args.timeout:
+    if args.timeout is not None:
+        # An explicit non-positive budget is a bad input, not "unset": the old
+        # truthiness test silently ignored `--timeout 0` and let a negative value
+        # reach `Deadline`, which raised a traceback out of the CLI.
+        if args.timeout <= 0:
+            raise ValueError(
+                f"--timeout must be a positive number of seconds, got {args.timeout}"
+            )
         config.timeout = args.timeout
     if args.title:
         config.title = args.title
@@ -82,10 +95,15 @@ def _emit(payload: dict, json_path: str | None) -> None:
             )
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the chain once, print the JSON verdict, exit 0 only when ok."""
-    args = _parser().parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+def _run(args: argparse.Namespace) -> int:
+    """Command body: resolve the configuration, run the chain, print a verdict.
+
+    `--json` is honored on every path that reaches a verdict, including
+    `NOT_CONFIGURED`: the earlier version passed `None` there, so a CI job that
+    read the verdict file got nothing whenever the environment was incomplete and
+    had to scrape stdout. A rejected budget (`--timeout -5`) stops before the
+    run, so there is no verdict to write.
+    """
     config = ChainConfig.from_env()
     if config is None:
         _emit(
@@ -95,17 +113,29 @@ def main(argv: list[str] | None = None) -> int:
                 "error": "set AGENTIC_BI_GUEST_WINRM, AGENTIC_BI_GUEST_USER, "
                 "AGENTIC_BI_GUEST_PASSWORD",
             },
-            None,
+            args.json,
         )
-        return 2
+        return EXIT_BAD_INPUT
     _apply_overrides(config, args)
     try:
         result = build_dashboard(config)
     except RuntimeError as exc:
-        _emit({"verdict": "NOT_CONFIGURED", "ok": False, "error": str(exc)}, None)
-        return 2
+        _emit({"verdict": "NOT_CONFIGURED", "ok": False, "error": str(exc)}, args.json)
+        return EXIT_BAD_INPUT
     _emit(result.as_dict(), args.json)
-    return 0 if result.ok else 1
+    return EXIT_OK if result.ok else EXIT_FAILED
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the chain once, print the JSON verdict, exit 0 only when ok.
+
+    A configuration the user can fix (`AGENTIC_BI_CHAIN_TIMEOUT=abc`,
+    `--timeout -5`) ends on one stderr line and exit 2 through `run_boundary`
+    instead of a `ValueError` traceback.
+    """
+    args = _parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    return run_boundary(lambda: _run(args), prog=PROG)
 
 
 if __name__ == "__main__":
