@@ -45,35 +45,17 @@ Format (YAML/JSON):
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 
-from agentic_bi import settings
-from agentic_bi.board import Board, col, measure
-
-logger = logging.getLogger(__name__)
-
-# element type tags the board builder understands
-_ELEMENT_TYPES = {"kpi", "chart", "table"}
-
-
-def _field_dict(f: dict) -> dict:
-    """Normalize a field dict into the board.col()/measure() format.
-
-    The spec is untrusted input, so a malformed field fails here with a message
-    naming the offending value, instead of a bare `KeyError`/`AttributeError`
-    much later in `spec_to_board`.
-    """
-    if not isinstance(f, dict):
-        raise ValueError(f"a field must be a mapping, got {type(f).__name__}: {f!r}")
-    prop = f.get("property")
-    if not prop:
-        raise ValueError(f"a field must have a 'property' key: {f!r}")
-    kind = f.get("kind", "column")
-    if kind == "measure":
-        return measure(prop, f.get("display"))
-    return col(prop, f.get("display"), agg=f.get("agg"))
+from agentic_bi.board import Board
+from agentic_bi.spec_boundary import (
+    field_dict,
+    from_dict,
+    load,
+    pos_tuple,
+    required_mapping,
+    required_mapping_list,
+)
 
 
 @dataclass
@@ -81,11 +63,11 @@ class ElementSpec:
     """A single visual/element of a page."""
 
     type: str
-    field: dict | None = None
-    fields: list[dict] | None = None
+    field: dict[str, object] | None = None
+    fields: list[dict[str, object]] | None = None
     visual_type: str = "lineChart"
-    axis: dict | None = None
-    value: dict | None = None
+    axis: dict[str, object] | None = None
+    value: dict[str, object] | None = None
     pos: list[int] | None = None  # [x, y, w, h]
     text: str | None = None
 
@@ -109,86 +91,15 @@ class DashboardSpec:
     table: str
     measure_table: str | None = None
     pages: list[PageSpec] = field(default_factory=list)
-    quality: dict = field(default_factory=dict)  # {thresholds: {...}}
-    deploy: dict = field(default_factory=dict)  # {pbirs_sync_config, ...}
-    control: dict = field(default_factory=dict)  # {verify, expected}
-    support: dict = field(default_factory=dict)  # {agents, enable_ids, disable_ids}
+    quality: dict[str, object] = field(default_factory=dict)  # {thresholds: {...}}
+    deploy: dict[str, object] = field(default_factory=dict)  # {pbirs_sync_config, ...}
+    control: dict[str, object] = field(default_factory=dict)  # {verify, expected}
+    # {agents, enable_ids, disable_ids}
+    support: dict[str, object] = field(default_factory=dict)
 
 
 # ─── parsing ───────────────────────────────────────────────
-
-
-def _parse_element(e: dict) -> ElementSpec:
-    if not isinstance(e, dict):
-        raise ValueError(f"an element must be a mapping, got {type(e).__name__}: {e!r}")
-    etype = e.get("type", "table")
-    if etype not in _ELEMENT_TYPES:
-        raise ValueError(
-            f"Unknown element type '{etype}'; allowed: {sorted(_ELEMENT_TYPES)}"
-        )
-    return ElementSpec(
-        type=etype,
-        field=e.get("field"),
-        fields=e.get("fields"),
-        visual_type=e.get("visual_type", "lineChart"),
-        axis=e.get("axis"),
-        value=e.get("value"),
-        pos=e.get("pos"),
-        text=e.get("text"),
-    )
-
-
-def _parse_page(p: dict) -> PageSpec:
-    if not isinstance(p, dict):
-        raise ValueError(f"a page must be a mapping, got {type(p).__name__}: {p!r}")
-    elements = p.get("elements", []) or []
-    if not isinstance(elements, list):
-        raise ValueError(f"page '{p.get('name')}': elements must be a list")
-    return PageSpec(
-        name=p.get("name"),
-        title=p.get("title"),
-        header=p.get("header"),
-        filters=p.get("filters", []) or [],
-        elements=[_parse_element(e) for e in elements],
-    )
-
-
-def from_dict(d: dict) -> DashboardSpec:
-    """Build a spec from a dict (after YAML/JSON).
-
-    A missing `name` is defaulted to an empty string so `validate_spec` reports
-    it as a problem (untrusted input must not crash on a bare `KeyError`).
-    """
-    dash = d.get("dashboard", d)
-    pages = [_parse_page(p) for p in dash.get("pages", []) or []]
-    return DashboardSpec(
-        name=dash.get("name", ""),
-        table=settings.resolve_model(table=dash.get("table")).table,
-        measure_table=dash.get("measure_table"),
-        pages=pages,
-        quality=d.get("quality", {}) or {},
-        deploy=d.get("deploy", {}) or {},
-        control=d.get("control", {}) or {},
-        support=d.get("support", {}) or {},
-    )
-
-
-def load(path: Path) -> DashboardSpec:
-    """Load a spec from a YAML/JSON file (depends on the extension)."""
-    path = Path(path)
-    text = path.read_text(encoding="utf-8")
-    if path.suffix.lower() in (".yaml", ".yml"):
-        try:
-            import yaml  # type: ignore
-
-            data = yaml.safe_load(text)
-        except ImportError:  # pragma: no cover
-            raise RuntimeError(
-                "YAML specs need PyYAML: uv pip install pyyaml"
-            ) from None
-    else:
-        data = json.loads(text)
-    return from_dict(data)
+# Parsing and field-level validation live in `spec_boundary` (untrusted input).
 
 
 def to_dict(spec: DashboardSpec) -> dict:
@@ -210,7 +121,7 @@ def to_dict(spec: DashboardSpec) -> dict:
 def to_yaml(spec: DashboardSpec) -> str:
     """Serialize a spec to a YAML string."""
     try:
-        import yaml  # type: ignore
+        import yaml
 
         return yaml.safe_dump(to_dict(spec), allow_unicode=True, sort_keys=False)
     except ImportError:  # pragma: no cover
@@ -221,23 +132,46 @@ def to_yaml(spec: DashboardSpec) -> str:
 
 
 def spec_to_board(spec: DashboardSpec) -> Board:
-    """Translate a spec into a ready ``Board`` builder (agentic_bi.board)."""
+    """Translate a spec into a ready ``Board`` builder (agentic_bi.board).
+
+    A hand-built ``DashboardSpec`` can still be incomplete; a missing required
+    field raises a path-qualified ``ValueError`` instead of a bare ``TypeError``.
+    """
     board = Board(table=spec.table, measure_table=spec.measure_table)
-    for ps in spec.pages:
+    for pi, ps in enumerate(spec.pages):
         page = board.add_page(ps.name, title=ps.title)
         page.filters(ps.filters)
         if ps.header:
             page.header(ps.header)
-        for el in ps.elements:
-            pos = tuple(el.pos) if el.pos else None
+        for ei, el in enumerate(ps.elements):
+            where = f"pages[{pi}].elements[{ei}]"
+            pos = pos_tuple(el.pos, f"{where}.pos")
             if el.type == "kpi":
-                page.kpi(_field_dict(el.field), pos=pos)
+                field_where = f"{where}.field"
+                page.kpi(
+                    field_dict(required_mapping(el.field, field_where), field_where),
+                    pos=pos,
+                )
             elif el.type == "chart":
+                axis_where = f"{where}.axis"
+                value_where = f"{where}.value"
                 page.chart(
-                    el.visual_type, _field_dict(el.axis), _field_dict(el.value), pos=pos
+                    el.visual_type,
+                    field_dict(required_mapping(el.axis, axis_where), axis_where),
+                    field_dict(required_mapping(el.value, value_where), value_where),
+                    pos=pos,
                 )
             elif el.type == "table":
-                page.table([_field_dict(f) for f in el.fields], pos=pos)
+                fields_where = f"{where}.fields"
+                page.table(
+                    [
+                        field_dict(field, f"{fields_where}[{i}]")
+                        for i, field in enumerate(
+                            required_mapping_list(el.fields, fields_where)
+                        )
+                    ],
+                    pos=pos,
+                )
     return board
 
 

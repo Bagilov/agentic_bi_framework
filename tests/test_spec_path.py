@@ -48,17 +48,34 @@ class TestSpecBoundaryValidation:
         assert any("missing 'property'" in p for p in problems)
 
     def test_non_mapping_field_is_rejected_with_a_message(self) -> None:
-        spec = from_dict(
-            {
-                "name": "D",
-                "table": "T",
-                "pages": [
-                    {"name": "P", "elements": [{"type": "table", "fields": ["colA"]}]}
-                ],
-            }
+        with pytest.raises(
+            ValueError, match=r"fields\[0\]': expected mapping, got str"
+        ):
+            from_dict(
+                {
+                    "name": "D",
+                    "table": "T",
+                    "pages": [
+                        {
+                            "name": "P",
+                            "elements": [{"type": "table", "fields": ["colA"]}],
+                        }
+                    ],
+                }
+            )
+
+    def test_validate_spec_still_reports_a_non_mapping_field(self) -> None:
+        spec = DashboardSpec(
+            name="D",
+            table="T",
+            pages=[
+                PageSpec(
+                    name="P",
+                    elements=[ElementSpec(type="table", fields=["colA"])],
+                )
+            ],
         )
-        problems = validate_spec(spec)
-        assert any("must be a mapping" in p for p in problems)
+        assert any("must be a mapping" in p for p in validate_spec(spec))
 
     def test_duplicate_page_names_are_reported(self) -> None:
         spec = DashboardSpec(
@@ -106,11 +123,11 @@ class TestSpecBoundaryValidation:
         assert any("unknown field kind" in p for p in validate_spec(spec))
 
     def test_element_must_be_a_mapping(self) -> None:
-        with pytest.raises(ValueError, match="element must be a mapping"):
+        with pytest.raises(ValueError, match=r"elements\[0\]': expected mapping"):
             from_dict({"name": "D", "pages": [{"name": "P", "elements": ["kpi"]}]})
 
     def test_non_list_elements_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="elements must be a list"):
+        with pytest.raises(ValueError, match=r"elements\': expected list, got str"):
             from_dict({"name": "D", "pages": [{"name": "P", "elements": "kpi"}]})
 
     def test_a_valid_spec_passes_validation(self) -> None:
