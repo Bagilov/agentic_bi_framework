@@ -16,7 +16,9 @@ Examples:
     python -m agentic_bi.test_build --data sales.csv --table Sales \
         --template templates/template.pbix --out out.pbix
 
-Exit code is non-zero if the visual check or a critical verification fails.
+Exit codes (see :mod:`agentic_bi.cli_support`): 0 when the build and its checks
+pass, 1 when the visual check or a critical verification fails, 2 on a bad input
+(missing data/template/model/registry file, unsupported data format).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -121,39 +124,92 @@ def run(args: argparse.Namespace) -> dict:
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
-    from agentic_bi.cli_support import run_boundary
+def _shown(path: str | Path) -> str:
+    """Return `path` for a message: relative to CWD, never an absolute path."""
+    p = Path(path)
+    return str(p) if not p.is_absolute() else os.path.relpath(p, Path.cwd())
 
+
+def _console_safe() -> None:
+    """Keep a non-UTF-8 console (Windows cp1251/cp866) from raising on output."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):  # a closed/replaced stream is not fatal
+            pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import EXIT_FAILED, EXIT_OK, run_boundary
+
+    _console_safe()
     ap = argparse.ArgumentParser(
         prog="agentic-bi-test-build",
         description="Build and validate a .pbix test build.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--data", required=True, help="CSV/JSON input")
-    ap.add_argument("--table", required=True)
-    ap.add_argument("--out", required=True, help="output .pbix")
-    ap.add_argument("--template", default=str(DEFAULT_TEMPLATE))
     ap.add_argument(
-        "--datamodel", default=None, help="prebuilt DataModel (.abf); skips the engine"
+        "--data",
+        required=True,
+        metavar="CSV|JSON",
+        help="input rows (.csv/.json/.jsonl)",
+    )
+    ap.add_argument("--table", required=True, help="table name for the inferred model")
+    ap.add_argument("--out", required=True, metavar="PBIX", help="output .pbix path")
+    ap.add_argument(
+        "--template",
+        default=str(DEFAULT_TEMPLATE),
+        metavar="PBIX",
+        help="template .pbix with the container parts "
+        "(default: templates/template.pbix or PBI_RS_TEMPLATE)",
+    )
+    ap.add_argument(
+        "--datamodel",
+        default=None,
+        metavar="ABF",
+        help="prebuilt DataModel (.abf); skips the engine "
+        "(default: build via the engine on Windows)",
     )
     ap.add_argument(
         "--desktop",
         default=PBI_RS,
-        help="Power BI Desktop executable (Windows engine mode)",
+        metavar="EXE",
+        help="Power BI Desktop executable for engine mode "
+        "(default: PBI_RS_DESKTOP or the Report Server install path)",
     )
-    ap.add_argument("--database", default=None)
-    ap.add_argument("--layout", choices=["gallery", "auto"], default="gallery")
+    ap.add_argument(
+        "--database",
+        default=None,
+        help="model database name (default: <out file stem>_db)",
+    )
+    ap.add_argument(
+        "--layout",
+        choices=["gallery", "auto"],
+        default="gallery",
+        help="layout builder: gallery = full visual set, auto = minimal layout "
+        "(default: gallery)",
+    )
     ap.add_argument(
         "--registry",
         default=None,
-        help="JSON model registry; default: derived from the spec",
+        metavar="JSON",
+        help="model registry {table: {columns, measures}} "
+        "(default: derived from the spec)",
     )
     ap.add_argument(
         "--model",
         action="store_true",
-        help="also read the model back via pbixray (needs readback)",
+        help="also read the model back via pbixray (needs the readback extra)",
     )
-    ap.add_argument("--report", default=None, help="write the JSON result here")
+    ap.add_argument(
+        "--report",
+        default=None,
+        metavar="JSON",
+        help="also write the JSON result here (default: printed only)",
+    )
     args = ap.parse_args(argv)
     if not args.database:
         args.database = Path(args.out).stem + "_db"
@@ -168,7 +224,16 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.report).write_text(text, encoding="utf-8")
 
         ok = not result["visual_errors"] and result["verify_ok"]
-        return 0 if ok else 1
+        status = "OK" if ok else "FAILED"
+        print(
+            f"agentic-bi-test-build: {result['rows']} row(s), "
+            f"{len(result['visual_errors'])} visual error(s), "
+            f"{len(result['verify_failed'])} failed check(s) -> {status}"
+        )
+        print(f"Saved: {_shown(result['out'])}")
+        if args.report:
+            print(f"Saved report: {_shown(args.report)}")
+        return EXIT_OK if ok else EXIT_FAILED
 
     return run_boundary(body, prog="agentic-bi-test-build")
 

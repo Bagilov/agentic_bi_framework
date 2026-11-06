@@ -12,12 +12,21 @@ Strategy (verified against real files):
 Layout and DataModel are independent — the layout references the model by name,
 so as long as object names match, the visuals work in Desktop and on a Report
 Server.
+
+CLI:
+    python -m agentic_bi.rebuild donor.pbix --out output_files/rebuilt.pbix
+
+CLI exit codes (see :mod:`agentic_bi.cli_support`): 0 when the new `.pbix` is
+written, 2 on a bad input (missing donor, not a `.pbix` zip, unreadable layout).
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
+import os
+import sys
 import zipfile
 from pathlib import Path
 
@@ -26,6 +35,8 @@ from agentic_bi.layout_meta import decode_layout_with_encoding
 
 logger = logging.getLogger(__name__)
 
+PROG = "agentic_bi.rebuild"
+
 
 def _extract_layout(src: Path) -> tuple[dict, str]:
     """Extract Report/Layout from a ready .pbix (sample of model references).
@@ -33,13 +44,20 @@ def _extract_layout(src: Path) -> tuple[dict, str]:
     Returns the layout and the encoding to write it back as: Desktop uses plain
     UTF-16LE without BOM, so any UTF-16 source is normalized to that; UTF-8
     sources are preserved as UTF-8.
+
+    Raises:
+        ValueError: when `src` is not a zip container or its layout is unreadable.
+        KeyError: when the container has no ``Report/Layout`` part.
     """
-    with zipfile.ZipFile(src) as z:
-        raw = z.read("Report/Layout")
+    try:
+        with zipfile.ZipFile(src) as z:
+            raw = z.read("Report/Layout")
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"not a .pbix zip container: {src}") from exc
     try:
         layout, enc = decode_layout_with_encoding(raw)
     except ValueError as exc:
-        raise ValueError("Could not decode the source Report/Layout") from exc
+        raise ValueError(f"Could not decode the source Report/Layout: {src}") from exc
     return layout, "utf-16le" if enc.startswith("utf-16") else enc
 
 
@@ -168,26 +186,86 @@ def rebuild_pbix(
                     )
                 zout.writestr(name, data)
 
-    logger.info(
+    logger.debug(
         "Rebuilt .pbix: %s (%d parts, %.1f KB)",
-        out,
+        _shown(out),
         len(names),
         out.stat().st_size / 1024,
     )
     return out
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    import argparse
+def _shown(path: str | Path) -> str:
+    """Return `path` for a message: relative to CWD, never an absolute path."""
+    p = Path(path)
+    return str(p) if not p.is_absolute() else os.path.relpath(p, Path.cwd())
 
-    parser = argparse.ArgumentParser(description="Rebuild a .pbix from a donor")
-    parser.add_argument("src", help="donor .pbix (DataModel source)")
-    parser.add_argument("--out", default="output_files/rebuilt.pbix")
-    parser.add_argument("--display", default="Rebuilt report")
-    args = parser.parse_args()
-    rebuild_pbix(Path(args.src), Path(args.out), display_name=args.display)
+
+def _console_safe() -> None:
+    """Keep a non-UTF-8 console (Windows cp1251/cp866) from raising on output."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):  # a closed/replaced stream is not fatal
+            pass
+
+
+def _layout_counts(layout: dict) -> tuple[int, int]:
+    """Return (pages, visuals) for the summary line."""
+    sections = layout.get("sections") or []
+    pages = len(sections) if isinstance(sections, list) else 0
+    visuals = sum(
+        len(s.get("visualContainers") or []) for s in sections if isinstance(s, dict)
+    )
+    return pages, visuals
+
+
+def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import EXIT_BAD_INPUT, EXIT_OK, fail, run_boundary
+
+    _console_safe()
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description="Rebuild a .pbix from a donor (its DataModel is reused as-is).",
+    )
+    parser.add_argument("src", help="donor .pbix whose DataModel and parts are reused")
+    parser.add_argument(
+        "--out",
+        default="output_files/rebuilt.pbix",
+        metavar="PBIX",
+        help="output .pbix path (default: output_files/rebuilt.pbix)",
+    )
+    parser.add_argument(
+        "--display",
+        default="Rebuilt report",
+        help="page display name (default: %(default)s)",
+    )
+    args = parser.parse_args(argv)
+
+    def body() -> int:
+        src = Path(args.src)
+        if not src.is_file():
+            return fail(PROG, f"donor pbix not found: {_shown(src)}", EXIT_BAD_INPUT)
+        out = Path(args.out)
+        try:
+            rebuild_pbix(src, out, display_name=args.display)
+            layout, _encoding = _extract_layout(out)
+        except KeyError as exc:
+            return fail(
+                PROG,
+                f"{_shown(src)}: no Report/Layout part in the container ({exc})",
+                EXIT_BAD_INPUT,
+            )
+        pages, visuals = _layout_counts(layout)
+        print(f"{PROG}: {pages} page(s), {visuals} visual(s) -> OK")
+        print(f"Saved: {_shown(out)}")
+        return EXIT_OK
+
+    return run_boundary(body, prog=PROG)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

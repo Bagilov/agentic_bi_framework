@@ -20,6 +20,8 @@ import base64
 import logging
 from pathlib import Path
 
+from agentic_bi.reportserver.reportserver_client import config_float, config_str
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,22 +65,17 @@ def publish_pbix(
     Returns:
         A dict from the response (Id, Name, Path, ...).
     """
-    _cfg_defaults = {
-        "server": "",
-        "base_path": "/reportserver",
-        "api_prefix": "/api/v2.0",
-        "timeout": 300,
+    # The config is untrusted input (CLI/env): a mistyped value must be a
+    # clear `ValueError`, not a downstream `TypeError` in `requests`.
+    config: dict[str, object] = {
+        key: value for key, value in (cfg or {}).items() if value is not None
     }
-    if cfg:
-        _cfg_defaults.update({k: v for k, v in cfg.items() if v is not None})
-    cfg = _cfg_defaults
-
-    server = cfg["server"]
+    server = config_str(config, "server", "")
     if not server:
         raise ValueError("publish_pbix: 'server' is required in cfg")
-    base = cfg["base_path"]
-    api = cfg["api_prefix"]
-    timeout = cfg.get("timeout", 300)
+    base = config_str(config, "base_path", "/reportserver")
+    api = config_str(config, "api_prefix", "/api/v2.0")
+    timeout = config_float(config, "timeout", 300.0)
 
     session, host = _client(server, verify=False)
     base_url = f"https://{host}{base}{api}/CatalogItems"
