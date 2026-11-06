@@ -34,7 +34,7 @@ def stacked_visual(
     )
     selects = [ax_item, val_item]
     projections: dict = {
-        "Values": [{"queryRef": val_ref}],
+        "Y": [{"queryRef": val_ref}],
         "Category": [{"queryRef": ax_ref}],
     }
     if series:
@@ -44,7 +44,7 @@ def stacked_visual(
         selects.insert(1, s_item)
         projections["Series"] = [{"queryRef": s_ref}]
     single = {
-        "visualType": "stackedColumnChart",
+        "visualType": "columnChart",
         "projections": projections,
         "prototypeQuery": _full_query(
             table, source, selects, measure_table, measure_alias
@@ -77,7 +77,7 @@ def treemap_visual(
         "visualType": "treemap",
         "projections": {
             "Values": [{"queryRef": val_ref}],
-            "Category": [{"queryRef": ax_ref}],
+            "Group": [{"queryRef": ax_ref}],
         },
         "prototypeQuery": _full_query(
             table, source, [ax_item, val_item], measure_table, measure_alias
@@ -107,14 +107,15 @@ def scatter_visual(
     y_item, y_ref, _ = _query_item(y, table, source, measure_table, measure_alias)
     selects = [x_item, y_item]
     projections: dict = {
-        "Values": [{"queryRef": x_ref, "Role": "X"}, {"queryRef": y_ref, "Role": "Y"}]
+        "X": [{"queryRef": x_ref}],
+        "Y": [{"queryRef": y_ref}],
     }
     if size:
         s_item, s_ref, _ = _query_item(
             size, table, source, measure_table, measure_alias
         )
         selects.append(s_item)
-        projections["Values"].append({"queryRef": s_ref, "Role": "Size"})
+        projections["Size"] = [{"queryRef": s_ref}]
     single = {
         "visualType": "scatterChart",
         "projections": projections,
@@ -139,9 +140,9 @@ def kpi_band(
     gap: int = 16,
     measure_table: str | None = None,
     measure_alias: str | None = None,
-) -> dict:
+) -> list[dict]:
     """A row of KPI cards (one measure/agg each) laid out horizontally."""
-    containers = []
+    containers: list[dict] = []
     for i, q in enumerate(cards):
         x = x0 + i * (cw + gap)
         c = card_visual(

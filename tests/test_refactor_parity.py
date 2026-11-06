@@ -135,9 +135,11 @@ def test_projection_roles_per_kind(kind: str, kw: dict, roles: set[str]) -> None
     assert set(sv["projections"]) == roles
 
 
-def test_optional_series_only_for_stacked_charts() -> None:
+def test_series_is_honoured_on_cartesian_charts() -> None:
+    # Clustered column/bar support a legend in Desktop, so `series` must not be
+    # dropped (a kind without a Series role raises in `Visual.__post_init__`).
     sv = _cfg("column", axis="a", value="b", series="c")["singleVisual"]
-    assert "Series" not in sv["projections"]
+    assert sv["projections"]["Series"] == [{"queryRef": "T.c"}]
 
 
 def test_measure_replaces_value_aggregation() -> None:
