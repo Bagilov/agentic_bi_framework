@@ -125,11 +125,15 @@ def test_page_name_cannot_break_out_of_inline_javascript():
 
 
 def test_element_key_is_carried_in_a_data_attribute():
-    """The key reaches the handler through a `data-` attribute, not inline JS."""
+    """The key reaches the handler through a `data-` attribute, not inline JS.
+
+    The key is page-ordinal-qualified (`<ordinal>:<page>#<index>`), because two
+    pages may share a display name and `page#index` then addressed the wrong one.
+    """
     model = inspect_layout(make_layout([_card()], page="Overview"))
     html = render_html(model)
 
-    assert 'data-key="Overview#0"' in html
+    assert 'data-key="0:Overview#0"' in html
 
 
 def test_page_tabs_are_escaped_in_the_document():

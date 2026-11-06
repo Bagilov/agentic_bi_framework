@@ -10,14 +10,15 @@ everything that does not match, so problem spots can be isolated on the layout.
 A collapsed section carries the flat metrics/issues table.
 
 The shell and interactions follow the framework's own process-mining HTML report
-style (dark theme, stats grid, slide-in filter panel, hover tooltips).
+style: a light-first palette (dark under `prefers-color-scheme`), a stats grid, a
+slide-in filter panel and hover tooltips.
 
 Modules:
     web_model    - typed model (pages, elements, issues, metrics)
     web_checks   - per-element checks
     web_inspect  - layout -> model (+ model registry via pbixray)
     web_mock     - mock SVG glyphs per visual type (board look)
-    web_assets   - CSS/JS assets (dark shell, layout canvas, filters, popover)
+    web_assets   - CSS/JS assets (light/dark shell, layout canvas, filters, popover)
     web_render   - model -> one HTML file (layout view)
     web_cli      - `agentic-bi-web-clone` command line
 
@@ -34,9 +35,13 @@ parameter. `pbixray` is optional (adds model-membership checks).
 from __future__ import annotations
 
 from agentic_bi.web_report.web_checks import (
+    HTML_REQUIRED_MARKUP,
     NON_DATA_TYPES,
     element_issues,
     has_in_filter,
+    html_issues,
+    unsafe_in_filter,
+    visual_type,
 )
 from agentic_bi.web_report.web_inspect import (
     build_model,
@@ -55,6 +60,7 @@ from agentic_bi.web_report.web_model import (
 from agentic_bi.web_report.web_render import render_html, write_html
 
 __all__ = [
+    "HTML_REQUIRED_MARKUP",
     "NON_DATA_TYPES",
     "ElementMetrics",
     "ElementReport",
@@ -65,9 +71,12 @@ __all__ = [
     "build_model",
     "element_issues",
     "has_in_filter",
+    "html_issues",
     "inspect_layout",
     "load_layout",
     "registry_from_pbix",
     "render_html",
+    "unsafe_in_filter",
+    "visual_type",
     "write_html",
 ]

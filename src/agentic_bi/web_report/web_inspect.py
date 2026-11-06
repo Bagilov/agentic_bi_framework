@@ -16,13 +16,16 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Any
 
 from agentic_bi.layout_meta import decode_layout
-from agentic_bi.web_report.web_checks import element_issues
+from agentic_bi.web_report.web_checks import element_issues, visual_type
+from agentic_bi.web_report.web_filter_checks import filter_issues as page_filter_issues
 from agentic_bi.web_report.web_model import (
     ElementReport,
     PageReport,
@@ -40,6 +43,17 @@ _FONT_LITERAL_RE = re.compile(
     r'"Value"\s*:\s*"\'?([^"\']+)\'?"'
 )
 
+#: Largest `Report/Layout` member this loader will decompress. A layout is JSON
+#: for one report, so real files are a few MiB at most; a zip bomb declaring a
+#: multi-gigabyte member would otherwise be read into memory before any JSON
+#: check runs. `ZipInfo.file_size` is attacker-controlled, so the read itself is
+#: bounded too.
+# Size exception (>300 lines): the untrusted-layout reader, its coercions and the
+# model registry belong together; a validated field and the report it lands in
+# must be readable in one pass.
+
+_MAX_LAYOUT_BYTES = 64 * 1024 * 1024
+
 
 # ─── layout helpers ───────────────────────────────────────────
 
@@ -49,9 +63,44 @@ def _decode_layout(raw: bytes) -> dict:
 
 
 def load_layout(pbix: str | Path) -> dict:
-    """Read and decode `Report/Layout` from a `.pbix`."""
-    with zipfile.ZipFile(pbix) as z:
-        return _decode_layout(z.read("Report/Layout"))
+    """Read and decode `Report/Layout` from a `.pbix`.
+
+    Raises:
+        ValueError: the file is not a zip container, it has no readable
+            `Report/Layout` member, that member is not JSON, or it decompresses
+            past `_MAX_LAYOUT_BYTES` (a `.pbix` is untrusted input, and an
+            unbounded read of a hostile member would exhaust memory).
+            `BadZipFile`, `KeyError` and decoder/JSON errors are translated so
+            the CLI boundary reports a short input error that names the file
+            instead of a bare `JSONDecodeError` or a traceback.
+    """
+    try:
+        with zipfile.ZipFile(pbix) as z:
+            info = z.getinfo("Report/Layout")
+            if info.file_size > _MAX_LAYOUT_BYTES:
+                raise ValueError(
+                    f"{pbix}: Report/Layout is {info.file_size} B, over the "
+                    f"{_MAX_LAYOUT_BYTES}-byte limit"
+                )
+            with z.open(info) as member:
+                raw = member.read(_MAX_LAYOUT_BYTES + 1)
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"{pbix}: не zip-контейнер .pbix ({exc})") from exc
+    except KeyError as exc:
+        raise ValueError(f"{pbix}: в контейнере нет Report/Layout") from exc
+    except (zlib.error, EOFError, RuntimeError) as exc:
+        # A corrupt deflate stream, a truncated member or an encrypted one is
+        # input damage, not a framework bug: translate it so the CLI reports one
+        # short line instead of ending on a `zlib.error` traceback.
+        raise ValueError(f"{pbix}: Report/Layout не читается ({exc})") from exc
+    if len(raw) > _MAX_LAYOUT_BYTES:
+        raise ValueError(
+            f"{pbix}: Report/Layout is larger than the {_MAX_LAYOUT_BYTES}-byte limit"
+        )
+    try:
+        return _decode_layout(raw)
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f"{pbix}: Report/Layout не разбирается как JSON") from exc
 
 
 def _visual_title(cfg: dict) -> str:
@@ -65,29 +114,48 @@ def _visual_title(cfg: dict) -> str:
 
 
 def _projected_fields(sv: dict) -> tuple[list[str], list[str]]:
-    """Return (fields, roles) from the visual's projections."""
+    """Return (fields, roles) from the visual's projections.
+
+    `projections`, each role's reference list and each reference come from the
+    untrusted layout: a list-typed `projections`, a scalar role and a non-object
+    reference are ignored instead of raising `AttributeError`.
+    """
+    projections = sv.get("projections")
+    if not isinstance(projections, dict):
+        return [], []
     fields: list[str] = []
     roles: list[str] = []
-    for role, refs in (sv.get("projections") or {}).items():
+    for role, refs in projections.items():
         roles.append(role)
+        if not isinstance(refs, list):
+            continue
         for ref in refs:
+            if not isinstance(ref, dict):
+                continue
             qref = ref.get("queryRef")
-            if qref:
+            if isinstance(qref, str) and qref:
                 fields.append(qref)
     return fields, roles
 
 
 def _num(value: Any) -> float:
-    """Coerce a layout coordinate to float, tolerating a non-numeric value.
+    """Coerce a layout coordinate to a finite float, tolerating bad values.
 
-    The layout is untrusted: a string `"abc"` (or a nested object) in `x`/`y`/
-    `width`/`height` must not abort the whole inspection, so an unparsable value
-    counts as 0.
+    The layout is untrusted: a string `"abc"`, a nested object, `NaN` or `inf` in
+    `x`/`y`/`width`/`height` must not abort the whole inspection (or overflow the
+    later `int()` cast), so an unparsable/non-finite value counts as 0.
     """
     try:
-        return float(value or 0)
+        number = float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
+def _page_dim(value: Any, default: float) -> float:
+    """A positive finite page dimension, else the report default."""
+    number = _num(value)
+    return number if number > 0 else default
 
 
 def _count_filters(raw: Any) -> int:
@@ -95,7 +163,7 @@ def _count_filters(raw: Any) -> int:
         return 0
     try:
         flts = json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return 1
     return len(flts) if isinstance(flts, list) else 1
 
@@ -119,35 +187,71 @@ def inspect_layout(
     model.checks_run = ["structure", "binding", "filter"]
     if registry is not None:
         model.checks_run.append("model-membership")
+    if not isinstance(layout, dict):
+        return model
 
-    for sec in layout.get("sections", []):
+    sections = layout.get("sections") or []
+    if not isinstance(sections, list):
+        sections = []
+    for ordinal, sec in enumerate(sections):
+        if not isinstance(sec, dict):
+            continue
         page = PageReport(
             name=sec.get("displayName") or f"Page {sec.get('ordinal', 0)}",
-            width=float(sec.get("width") or 1280),
-            height=float(sec.get("height") or 1050),
+            width=_page_dim(sec.get("width"), 1280),
+            height=_page_dim(sec.get("height"), 1050),
+            filter_issues=page_filter_issues(sec.get("filters", "[]")),
         )
-        for idx, vc in enumerate(sec.get("visualContainers", [])):
-            page.elements.append(_element(vc, idx, page.name, registry))
+        visuals = sec.get("visualContainers") or []
+        if not isinstance(visuals, list):
+            visuals = []
+        for idx, vc in enumerate(visuals):
+            if not isinstance(vc, dict):
+                continue
+            page.elements.append(
+                _element(vc, idx, page.name, registry, page_ordinal=ordinal)
+            )
         model.pages.append(page)
     return model
 
 
-def _element(vc: dict, idx: int, page: str, registry: dict | None) -> ElementReport:
+def _element(
+    vc: dict,
+    idx: int,
+    page: str,
+    registry: dict | None,
+    *,
+    page_ordinal: int = 0,
+) -> ElementReport:
+    """Build one `ElementReport`; a malformed `config` degrades to an empty one.
+
+    The container `config` is untrusted JSON: it may parse to a scalar, a list or
+    an object whose `singleVisual` is not an object. Each of those becomes `{}`
+    so the element still gets its structural diagnostics instead of aborting the
+    whole inspection with an `AttributeError`.
+
+    `page_ordinal` qualifies the element key: a report may hold two pages with
+    the same display name, and `page#index` alone made their elements collide.
+    """
     raw_cfg = vc.get("config", "")
     cfg_text = (
         raw_cfg if isinstance(raw_cfg, str) else json.dumps(raw_cfg, ensure_ascii=False)
     )
     try:
         cfg = json.loads(cfg_text or "{}")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         cfg = {}
-    sv = cfg.get("singleVisual") or {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    sv = cfg.get("singleVisual")
+    if not isinstance(sv, dict):
+        sv = {}
     fields, roles = _projected_fields(sv)
     colors, fonts = _usage_counts(cfg_text)
     element = ElementReport(
         page=page,
         index=idx,
-        visual_type=sv.get("visualType") or "unknown",
+        visual_type=visual_type(sv),
         title=_visual_title(cfg),
         x=_num(vc.get("x")),
         y=_num(vc.get("y")),
@@ -158,6 +262,7 @@ def _element(vc: dict, idx: int, page: str, registry: dict | None) -> ElementRep
         colors=colors,
         fonts=fonts,
         visual_filters=_count_filters(vc.get("filters", "[]")),
+        page_ordinal=page_ordinal,
     )
     element.issues = element_issues(sv, vc, roles, registry)
     return element

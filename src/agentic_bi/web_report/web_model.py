@@ -25,6 +25,64 @@ Severity = Literal["error", "warning", "info"]
 SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "error": 2}
 
 
+#: U+FFFD REPLACEMENT CHARACTER, used for a code point no UTF-8 file can carry.
+_REPLACEMENT = "\ufffd"
+
+
+def _is_surrogate(char: str) -> bool:
+    """True for a UTF-16 surrogate code point (U+D800-U+DFFF)."""
+    return 0xD800 <= ord(char) <= 0xDFFF
+
+
+def _scrub(text: str) -> str:
+    """Replace characters the document cannot carry with U+FFFD.
+
+    `Report/Layout` is JSON, so `"\\ud800"` is a legal escape and reaches the
+    model as a lone surrogate. `_e()` escapes it and the renderer keeps it in the
+    document string, but no such character can be encoded into the output file:
+    `write_html` raised `UnicodeEncodeError` and produced no document at all.
+    A NUL is scrubbed too: an HTML parser maps a literal NUL in an attribute to
+    U+FFFD, so an element key containing one could never be looked up by the
+    client. Scrubbing at the model boundary keeps every later consumer (renderer,
+    JSON payload, other exporters) on valid, round-trippable text.
+    """
+    if not any(_is_surrogate(char) or char == "\x00" for char in text):
+        return text
+    return "".join(
+        _REPLACEMENT if _is_surrogate(char) or char == "\x00" else char for char in text
+    )
+
+
+def _text(value: object, default: str) -> str:
+    """`value` as a non-empty string, else `default` (no `repr`, no exception)."""
+    if isinstance(value, str):
+        return _scrub(value) or default
+    return default
+
+
+def _page_name(value: object) -> str:
+    """A page display name as text.
+
+    A layout may carry a number where a name is expected. `ElementReport.page`
+    is coerced to its string form, and the two must match: the details table, the
+    `data-page` filter and the client model all compare them. A value with no
+    text form (a list, an object) falls back to a neutral name instead of
+    crashing the renderer.
+    """
+    if isinstance(value, str) and value:
+        return _scrub(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return "Page"
+
+
+def _issues(value: object) -> list[Issue]:
+    """Keep only `Issue` entries: a public model must not crash the renderer."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Issue)]
+
+
 @dataclass
 class Issue:
     """One violated check on one element."""
@@ -33,6 +91,10 @@ class Issue:
     severity: Severity
     message: str
     category: str = "structure"
+
+    def __post_init__(self) -> None:
+        """Keep the message renderable: a lone surrogate cannot be written."""
+        self.message = _scrub(str(self.message))
 
 
 @dataclass
@@ -81,6 +143,26 @@ class ElementReport:
     fonts: int = 0
     visual_filters: int = 0
     issues: list[Issue] = field(default_factory=list)
+    #: Position of the owning page in `WebReportModel.pages`. It qualifies the
+    #: element key, because a Power BI report may hold two pages with the same
+    #: `displayName` and `page#index` alone would then collide.
+    page_ordinal: int = 0
+
+    def __post_init__(self) -> None:
+        """Coerce the identity fields the renderer uses as keys to plain strings.
+
+        `ElementReport` is public, so a caller may pass a list or a number as
+        `visual_type`. Set/dict membership (`NON_DATA_TYPES`, `ALLOWED`) and
+        `sorted()` over those values would raise on such a value, so the model
+        stores the string form and the renderer stays total. `issues` is filtered
+        the same way: a dict or a string in it would make `metrics` raise.
+        """
+        self.page = _page_name(self.page)
+        self.title = _text(self.title, "")
+        self.visual_type = _text(self.visual_type, "unknown")
+        self.fields = [_scrub(str(f)) for f in self.fields]
+        self.roles = [_scrub(str(r)) for r in self.roles]
+        self.issues = _issues(self.issues)
 
     @property
     def metrics(self) -> ElementMetrics:
@@ -103,8 +185,13 @@ class ElementReport:
 
     @property
     def key(self) -> str:
-        """A stable id for the element (`page#index`) used in HTML/JSON."""
-        return f"{self.page}#{self.index}"
+        """A stable, page-scoped id (`<ordinal>:<page>#<index>`).
+
+        The page ordinal is part of the key because `displayName` is not unique:
+        two pages called "Overview" produced one `Overview#0` key, so one page's
+        element opened the other page's details and the filter jumped pages.
+        """
+        return f"{self.page_ordinal}:{self.page}#{self.index}"
 
     @property
     def label(self) -> str:
@@ -114,17 +201,28 @@ class ElementReport:
 
 @dataclass
 class PageReport:
-    """A report page: display name, canvas size and its elements."""
+    """A report page: display name, canvas size, its elements and filters."""
 
     name: str
     width: float = 1280
     height: float = 1050
     elements: list[ElementReport] = field(default_factory=list)
+    filter_issues: list[Issue] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Coerce the page name and drop non-`Issue` filter entries.
+
+        `PageReport` is public: `displayName: 7` gave a numeric name while the
+        elements' `page` was the string form, so the filter matched nothing, and a
+        dict in `filter_issues` raised `AttributeError` from the renderer.
+        """
+        self.name = _page_name(self.name)
+        self.filter_issues = _issues(self.filter_issues)
 
     @property
     def issues(self) -> int:
-        """Total issues on the page."""
-        return sum(e.metrics.issues for e in self.elements)
+        """Total issues on the page, including its page-level filters."""
+        return sum(e.metrics.issues for e in self.elements) + len(self.filter_issues)
 
 
 @dataclass
@@ -142,10 +240,13 @@ class WebReportModel:
         return [e for p in self.pages for e in p.elements]
 
     def by_severity(self) -> dict[str, int]:
-        """Count issues by severity across the report."""
+        """Count issues by severity across the report, page filters included."""
         counts = {"error": 0, "warning": 0, "info": 0}
         for e in self.elements:
             for i in e.issues:
+                counts[i.severity] = counts.get(i.severity, 0) + 1
+        for p in self.pages:
+            for i in p.filter_issues:
                 counts[i.severity] = counts.get(i.severity, 0) + 1
         return counts
 
@@ -156,8 +257,8 @@ class WebReportModel:
 
     @property
     def issues(self) -> int:
-        """Total issues across the report."""
-        return sum(e.metrics.issues for e in self.elements)
+        """Total issues across the report, page-level filters included."""
+        return sum(p.issues for p in self.pages)
 
     def summary(self) -> dict[str, int]:
         """The header counters shown in the clone."""

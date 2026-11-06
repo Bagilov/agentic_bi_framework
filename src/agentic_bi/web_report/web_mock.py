@@ -23,12 +23,10 @@ _CATEGORY: dict[str, str] = {
     "slicer": "slicer",
     "tableEx": "table",
     "pivotTable": "matrix",
-    "matrix": "matrix",
     "columnChart": "column",
     "clusteredColumnChart": "column",
-    "stackedColumnChart": "column",
     "barChart": "bar",
-    "stackedBarChart": "bar",
+    "clusteredBarChart": "bar",
     "lineChart": "line",
     "areaChart": "area",
     "pieChart": "pie",
@@ -147,7 +145,7 @@ _BODY: dict[str, str] = {
     "donut": (
         '<svg viewBox="0 0 100 60" preserveAspectRatio="none">'
         f'<circle cx="50" cy="30" r="22" {_A} opacity="0.55"/>'
-        f'<circle cx="50" cy="30" r="11" fill="#0f1526"/>'
+        f'<circle cx="50" cy="30" r="11" fill="var(--surface-2)"/>'
         "</svg>"
     ),
     "treemap": (

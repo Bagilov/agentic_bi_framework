@@ -7,6 +7,7 @@ donor template and a board built from scratch.
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -182,3 +183,191 @@ def test_clean_element_badge_is_ok(template_pbix: Path, tmp_path: Path):
     html = render_html(build_model(board))
     assert 'class="el ok"' in html
     assert '<span class="badge ok">OK</span>' in html
+
+
+# ─── CLI input boundary ──────────────────────────────────────
+
+
+def _zip_pbix(path: Path, layout: dict) -> Path:
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("Report/Layout", json.dumps(layout))
+    return path
+
+
+def _error_layout() -> dict:
+    return make_layout(
+        [
+            make_container(
+                "columnChart",
+                {"Category": [{"queryRef": "Sales.region"}]},
+                ["Sales.region"],
+                title="By region",
+            )
+        ]
+    )
+
+
+def test_cli_non_zip_file_is_a_clean_input_error(tmp_path: Path, capsys):
+    from agentic_bi.web_report.web_cli import main
+
+    bad = tmp_path / "board.pbix"
+    bad.write_bytes(b"this is not a zip container")
+    rc = main(["--pbix", str(bad), "--out", str(tmp_path / "o.html")])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "не zip" in err
+    assert "Traceback" not in err
+
+
+def test_cli_zip_without_layout_is_a_clean_input_error(tmp_path: Path, capsys):
+    from agentic_bi.web_report.web_cli import main
+
+    bad = tmp_path / "board.pbix"
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("DataModel", b"x")
+    rc = main(["--pbix", str(bad), "--out", str(tmp_path / "o.html")])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "нет Report/Layout" in err
+    assert "Traceback" not in err
+
+
+def test_cli_registry_value_must_be_an_object(tmp_path: Path, capsys):
+    from agentic_bi.web_report.web_cli import main
+
+    board = _zip_pbix(tmp_path / "board.pbix", make_layout([]))
+    reg = tmp_path / "reg.json"
+    reg.write_text(json.dumps({"Sales": ["amount"]}), encoding="utf-8")
+    rc = main(
+        [
+            "--pbix",
+            str(board),
+            "--out",
+            str(tmp_path / "o.html"),
+            "--registry",
+            str(reg),
+        ]
+    )
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "должно быть объектом" in err
+    assert "Traceback" not in err
+
+
+def test_cli_registry_null_table_is_a_clean_input_error(tmp_path: Path, capsys):
+    from agentic_bi.web_report.web_cli import main
+
+    board = _zip_pbix(tmp_path / "board.pbix", make_layout([]))
+    reg = tmp_path / "reg.json"
+    reg.write_text(json.dumps({"Sales": None}), encoding="utf-8")
+    rc = main(
+        [
+            "--pbix",
+            str(board),
+            "--out",
+            str(tmp_path / "o.html"),
+            "--registry",
+            str(reg),
+        ]
+    )
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "должно быть объектом" in err
+    assert "Traceback" not in err
+
+
+def test_cli_registry_columns_must_be_a_string_list(tmp_path: Path, capsys):
+    from agentic_bi.web_report.web_cli import main
+
+    board = _zip_pbix(tmp_path / "board.pbix", make_layout([]))
+    reg = tmp_path / "reg.json"
+    reg.write_text(
+        json.dumps({"Sales": {"columns": "amount", "measures": []}}),
+        encoding="utf-8",
+    )
+    rc = main(
+        [
+            "--pbix",
+            str(board),
+            "--out",
+            str(tmp_path / "o.html"),
+            "--registry",
+            str(reg),
+        ]
+    )
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "списком строк" in err
+    assert "Traceback" not in err
+
+
+def test_cli_strict_returns_one_only_with_errors(tmp_path: Path, capsys):
+    """Default is report-only (0); `--strict` turns error issues into exit 1."""
+    from agentic_bi.web_report.web_cli import main
+
+    board = _zip_pbix(tmp_path / "board.pbix", _error_layout())
+    relaxed = main(["--pbix", str(board), "--out", str(tmp_path / "relaxed.html")])
+    assert relaxed == 0
+
+    strict = main(
+        [
+            "--pbix",
+            str(board),
+            "--out",
+            str(tmp_path / "strict.html"),
+            "--strict",
+        ]
+    )
+    err = capsys.readouterr().err
+    assert strict == 1
+    assert "--strict" in err
+    assert "Traceback" not in err
+
+
+def test_cli_strict_returns_zero_for_a_clean_report(tmp_path: Path):
+    """`--strict` returns 1 on errors, not unconditionally (the "only" case)."""
+    from agentic_bi.web_report.web_cli import main
+
+    clean = make_layout(
+        [
+            make_container(
+                "card",
+                {"Values": [{"queryRef": "Sum(Sales.amount)"}]},
+                ["Sum(Sales.amount)"],
+                title="Total",
+            )
+        ]
+    )
+    board = _zip_pbix(tmp_path / "clean.pbix", clean)
+    rc = main(
+        [
+            "--pbix",
+            str(board),
+            "--out",
+            str(tmp_path / "clean.html"),
+            "--strict",
+        ]
+    )
+    assert rc == 0
+
+
+def test_an_empty_page_still_carries_its_printed_caption():
+    """On paper the tabs are hidden; the caption is the only page name.
+
+    Measured before: `_page_panel` emitted `.canvas-title` only when the page had
+    elements, so an empty page printed as a bare "Страница без визуалов"
+    placeholder and two empty pages were indistinguishable on paper.
+    """
+    layout = {
+        "sections": [
+            {"displayName": "Без визуалов", "width": 1280, "height": 720},
+            {"displayName": "Тоже пусто", "width": 1280, "height": 720},
+        ]
+    }
+    markup = render_html(inspect_layout(layout, source="empty.pbix"))
+    panels = re.findall(
+        r'<section class="canvas-wrap[^"]*"[^>]*>(.*?)</section>', markup, re.S
+    )
+    assert len(panels) == 2
+    for panel, name in zip(panels, ("Без визуалов", "Тоже пусто"), strict=True):
+        assert f'<h2 class="canvas-title">{name}</h2>' in panel

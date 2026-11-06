@@ -199,13 +199,42 @@ def test_unsafe_in_filter_is_error():
     assert "FILTER-UNSAFE-IN" in codes
 
 
-def test_has_in_filter_helper():
+def test_has_in_filter_reads_structure_not_text():
     assert _has_in_filter("[]") is False
     assert _has_in_filter("") is False
     assert (
         _has_in_filter(json.dumps([{"filter": {"Where": [{"Condition": {"In": {}}}]}}]))
         is True
     )
+    inline = [
+        {
+            "filter": {
+                "From": [{"Name": "o", "Entity": "Opportunities", "Type": 0}],
+                "Where": [
+                    {
+                        "Condition": {
+                            "In": {
+                                "Expressions": [
+                                    {
+                                        "Column": {
+                                            "Expression": {
+                                                "SourceRef": {"Source": "o"}
+                                            },
+                                            "Property": "Status",
+                                        }
+                                    }
+                                ],
+                                "Values": [[{"Literal": {"Value": "'Open'"}}]],
+                            }
+                        }
+                    }
+                ],
+            }
+        }
+    ]
+    assert _has_in_filter(json.dumps(inline)) is False
+    assert _has_in_filter(json.dumps([{"name": "Include Income Index"}])) is False
+    assert _has_in_filter("{not json") is True
 
 
 def test_element_metrics_count_colors_fonts_filters():
