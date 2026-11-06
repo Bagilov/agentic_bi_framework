@@ -11,6 +11,10 @@ CLI:
 
 The server host is read from the report-server config (see
 `agentic_bi.reportserver.diagnostics`); no host is hardcoded here.
+
+CLI exit codes (see :mod:`agentic_bi.cli_support`): 0 on success, 1 when the
+server refuses the work (no permission, unreadable response), 2 when `--path`
+names no report (bad input).
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -27,6 +33,7 @@ from agentic_bi.reportserver.pbix_analysis import PbiRsBulk
 
 logger = logging.getLogger(__name__)
 
+PROG = "agentic_bi.inspect_board"
 OUT_DIR = paths.output_dir()
 
 
@@ -161,35 +168,86 @@ def inspect_board(path: str, keep_pbix: bool = False) -> dict:
     return _thesis(res.get("lineage", {}), item)
 
 
+def _shown(path: str | Path) -> str:
+    """Return `path` for a message: relative to CWD, never an absolute path."""
+    p = Path(path)
+    return str(p) if not p.is_absolute() else os.path.relpath(p, Path.cwd())
+
+
+def _console_safe() -> None:
+    """Keep a non-UTF-8 console (Windows cp1251/cp866) from raising on output."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):  # a closed/replaced stream is not fatal
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    from agentic_bi.cli_support import (
+        EXIT_BAD_INPUT,
+        EXIT_FAILED,
+        EXIT_OK,
+        fail,
+        run_boundary,
+    )
+
+    _console_safe()
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
     p = argparse.ArgumentParser(
-        description="Inspect a Report Server dashboard: elements by path"
+        prog=PROG,
+        description="Inspect a Report Server dashboard: elements by path",
     )
-    p.add_argument("--path", required=True, help="full report path on the server")
+    p.add_argument(
+        "--path",
+        required=True,
+        metavar="/Folder/Report",
+        help="full report path on the server",
+    )
     p.add_argument(
         "--keep-pbix",
         action="store_true",
-        help="keep the downloaded .pbix in output_files/inspect",
+        help="keep the downloaded .pbix in output_files/inspect "
+        "(default: it is removed after analysis)",
     )
     args = p.parse_args(argv)
 
-    try:
-        thesis = inspect_board(args.path, keep_pbix=args.keep_pbix)
-    except (PbirsPathError, PbirsAccessError) as e:
-        logger.error("%s", e)
-        return 1
+    def body() -> int:
+        try:
+            thesis = inspect_board(args.path, keep_pbix=args.keep_pbix)
+        except PbirsPathError as exc:
+            return fail(PROG, f"--path {args.path}: {exc}", EXIT_BAD_INPUT)
+        except PbirsAccessError as exc:
+            return fail(PROG, f"--path {args.path}: {exc}", EXIT_FAILED)
+        except ValueError as exc:
+            return fail(
+                PROG,
+                f"--path {args.path}: unreadable catalog response ({exc})",
+                EXIT_FAILED,
+            )
 
-    print(json.dumps(thesis, ensure_ascii=False, indent=2))
-    report = OUT_DIR / "inspect" / f"{Path(args.path).name}.json"
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(
-        json.dumps(thesis, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    logger.info("Saved: %s", report)
-    return 0
+        print(json.dumps(thesis, ensure_ascii=False, indent=2))
+        report = OUT_DIR / "inspect" / f"{Path(args.path).name}.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(
+            json.dumps(thesis, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        summary = thesis.get("summary", {})
+        print(
+            f"{PROG}: {summary.get('pages', 0)} page(s), "
+            f"{summary.get('visuals', 0)} visual(s), "
+            f"{summary.get('tables', 0)} table(s), "
+            f"{summary.get('measures', 0)} measure(s) -> OK"
+        )
+        print(f"Saved: {_shown(report)}")
+        return EXIT_OK
+
+    return run_boundary(body, prog=PROG)
 
 
 if __name__ == "__main__":
