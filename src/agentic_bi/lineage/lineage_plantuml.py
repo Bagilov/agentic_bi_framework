@@ -95,6 +95,11 @@ left to right direction
         from M code (see `_source_from_m`). Covers: Hive/Impala, DBs
         (MSSQL/MySQL/Postgres/Oracle), files (Excel/CSV/JSON/Parquet/XML),
         HDFS/cloud, embedded and other.
+
+        Oracle is a known zone outside the perimeter: the diagram shows only the
+        generic "RDBMS (Oracle)" store, never the server, schema or objects,
+        because those details are deployment-specific and are already redacted
+        by `_source_from_m`.
         """
         t = (src.type or "").lower()
         d = (src.detail or "").lower()

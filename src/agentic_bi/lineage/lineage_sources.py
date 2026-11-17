@@ -1,4 +1,16 @@
-"""Data-source resolution from Power Query M code (mixin)."""
+"""Data-source resolution from Power Query M code (mixin).
+
+Each source type is detected from the M expression and reduced to a `Source`
+(type, detail, access status). Local files get a real access check; databases
+stay `unresolved` because their access cannot be verified statically.
+
+Known zone outside the perimeter
+    Oracle is reported as an opaque external database. The database behind the
+    connection (for example the portal metadata store) is not part of this
+    solution: its schema, objects, connection string and credentials depend on
+    the concrete deployment, so they are redacted here instead of being echoed
+    into lineage output (`ORACLE_DETAIL`, `ORACLE_BOUNDARY_NOTE`).
+"""
 
 from __future__ import annotations
 
@@ -10,6 +22,25 @@ from pathlib import Path
 from agentic_bi.lineage.lineage_types import Source
 
 logger = logging.getLogger(__name__)
+
+# --- Oracle boundary -------------------------------------------------------- #
+# Known zone, intentionally opaque: everything behind an Oracle connection is a
+# database we do not own and do not have here. In the corporate setup that is
+# typically the portal metadata store (catalog, access grants, execution logs),
+# and it may be any other Oracle database in another deployment. The connection
+# string, the schema, the table names and the credentials are therefore
+# deployment-specific and **outside the perimeter of this solution**, so they
+# are never parsed out of the M code or echoed into lineage reports, JSON and
+# diagrams: only the fact that the source is an external Oracle database is
+# reported, with a fixed redacted detail and an explicit boundary note.
+ORACLE_TYPE = "Oracle"
+ORACLE_DETAIL = "external Oracle database (connection details redacted)"
+ORACLE_BOUNDARY_NOTE = (
+    "Oracle database access is outside the perimeter of this solution: the "
+    "database, its schema, its objects and its credentials depend on the "
+    "concrete deployment and are not known here, so only the source type is "
+    "reported"
+)
 
 
 class SourceMixin:
@@ -132,7 +163,7 @@ class SourceMixin:
                 error="Server check requires a live connection",
             )
 
-        # --- Oracle ---
+        # --- Oracle (known external zone, see the module constants) ---
         if any(
             k in expr
             for k in (
@@ -142,13 +173,11 @@ class SourceMixin:
                 "Odp.Net",
             )
         ):
-            m_conn = re.search(r'Oracle\.Database\(\s*"([^"]+)"', expr)
-            conn = m_conn.group(1) if m_conn else "?"
             return Source(
-                "Oracle",
-                conn,
+                ORACLE_TYPE,
+                ORACLE_DETAIL,
                 status="unresolved",
-                error="Server check requires a live connection",
+                error=ORACLE_BOUNDARY_NOTE,
             )
 
         # --- Hive/Impala via ODBC/emulator ---
