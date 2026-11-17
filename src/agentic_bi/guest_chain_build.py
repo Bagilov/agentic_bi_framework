@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from agentic_bi.guest_task_script import remove_script, run_token
 from agentic_bi.guest_transport import Deadline, StageError, ps_quote
+from agentic_bi.guest_types import desktop_bin
 from agentic_bi.guest_winrm_commands import publish_copy_script
 
 if TYPE_CHECKING:  # avoid a runtime cycle with the orchestrator
@@ -165,12 +166,6 @@ def stage_framework(repo: Path, dest_zip: Path) -> None:
                     zf.write(path, str(path.relative_to(repo)))
 
 
-#: Where Power BI Desktop installs by default on the guest. Overridable through
-#: `AGENTIC_BI_GUEST_DESKTOP` (`GuestConfig.desktop`), which the oracle already
-#: uses; hardcoding it here left a relocated install with a wrong `PBI_RS_BIN`.
-_DEFAULT_DESKTOP_BIN = r"C:\Program Files\Microsoft Power BI Desktop\bin"
-
-
 def build_script(cfg: ChainConfig, guest_pbix: str) -> str:
     """The interactive-task body: run the builder, printing to stdout/stderr.
 
@@ -190,10 +185,9 @@ def build_script(cfg: ChainConfig, guest_pbix: str) -> str:
     guest = cfg.guest
     root = guest.root
     # `GuestConfig.desktop` is where the configuration says Desktop is installed
-    # (`PBI_RS_DESKTOP`), and the oracle already honours it. Hardcoding the
-    # default here meant a Store/relocated install got a wrong `PBI_RS_BIN` and
-    # the build failed far from the cause.
-    bin_dir = guest.desktop or _DEFAULT_DESKTOP_BIN
+    # (`PBI_RS_DESKTOP`); `desktop_bin` accepts either the executable or the bin
+    # directory, so one variable serves the build (PBI_RS_BIN) and the oracle.
+    bin_dir = desktop_bin(guest.desktop)
     template = f"{root}\\templates\\template.pbix"
     src = f"{root}\\src"
     builder_path = f"{root}\\examples\\{cfg.builder}"

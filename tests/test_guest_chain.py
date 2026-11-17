@@ -300,7 +300,7 @@ class TestDesktopBin:
 
 class TestOracleBudget:
     def test_no_budget_left_is_a_timeout_not_a_value_error(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """`int(remaining) == 0` used to reach `Deadline(0)` and raise ValueError."""
         import agentic_bi.guest_chain as mod
@@ -310,7 +310,7 @@ class TestOracleBudget:
             "agentic_bi.desktop_oracle_guest.run_oracle",
             lambda *a, **k: called.append((a, k)),
         )
-        config = _chain_config(Path("/tmp/kilo"))
+        config = _chain_config(tmp_path)
         deadline = Deadline(60)
         deadline._start -= 59.7
         result = ChainResult(verdict=BUILT)

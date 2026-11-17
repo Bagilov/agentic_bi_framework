@@ -11,6 +11,8 @@ Public API:
     GuestConfig.from_env()   - guest endpoint/user/paths (None when unset)
     GuestConfig.available()  - True when the guest is configured
     ps_quote(text)           - a value as a single-quoted PowerShell literal
+    desktop_bin(value)       - the Desktop bin directory for either config form
+    desktop_exe(value)       - the Desktop executable for either config form
 """
 
 from __future__ import annotations
@@ -22,6 +24,34 @@ from dataclasses import dataclass
 DEFAULT_PYTHON = r"C:\pbi\py\python.exe"
 DEFAULT_ROOT = r"C:\pbi\abf"
 DEFAULT_OUT = r"C:\pbi\out"
+DESKTOP_EXE_NAME = "PBIDesktop.exe"
+DEFAULT_DESKTOP_BIN = r"C:\Program Files\Microsoft Power BI Desktop\bin"
+
+
+def desktop_bin(value: str | None) -> str:
+    """Return the Desktop *bin directory* for either accepted config form.
+
+    `PBI_RS_DESKTOP` is documented as the executable path but is also the value
+    a relocated install naturally pins as a directory, and the engine build needs
+    the directory while the oracle needs the executable. Accepting both here is
+    what keeps one variable usable for both stages.
+    """
+    if not value:
+        return DEFAULT_DESKTOP_BIN
+    text = value.strip().rstrip("\\/")
+    if text.lower().endswith(".exe"):
+        return text.rsplit("\\", 1)[0]
+    return text
+
+
+def desktop_exe(value: str | None) -> str:
+    """Return the Desktop *executable* path for either accepted config form."""
+    if not value:
+        return DEFAULT_DESKTOP_BIN + "\\" + DESKTOP_EXE_NAME
+    text = value.strip().rstrip("\\/")
+    if text.lower().endswith(".exe"):
+        return text
+    return text + "\\" + DESKTOP_EXE_NAME
 
 
 def ps_quote(value: object) -> str:

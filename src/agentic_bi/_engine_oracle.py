@@ -3,6 +3,15 @@ attached (non-empty table list) AND still present after a hold window, with no
 crash dump and no error dialog. Otherwise CRASH / NOT_MODEL_LOADED.
 
 Usage: python _oracle_strict.py <pbix> [hold_s]
+
+Known zone outside the perimeter
+    The verdict is derived from Power BI Desktop internals: the analysis-services
+    workspace directory, its SQLite metadata database, crash dumps and window
+    titles. Those details are not published by Microsoft, are not part of this
+    solution and may change between Desktop builds and between the RS and the
+    regular edition. Everything here is therefore a probe of a known zone whose
+    concrete layout depends on the installed build; only the workspace database
+    is read, and it is read as an opaque metadata store for table names.
 """
 
 from __future__ import annotations
@@ -17,6 +26,8 @@ import time
 from collections.abc import Callable
 from ctypes import wintypes
 
+from agentic_bi.guest_types import desktop_exe
+
 # Desktop executable: prefer the RS build, fall back to the regular Desktop; can
 # be pinned with PBI_RS_DESKTOP (mirrors engine._default_desktop).
 _DESKTOP_SUBPATHS = (
@@ -28,7 +39,10 @@ _DESKTOP_SUBPATHS = (
 def _default_desktop() -> str:
     env = os.environ.get("PBI_RS_DESKTOP")
     if env:
-        return env
+        # The same variable pins the *bin directory* for the engine build, so a
+        # directory here is normal; CreateProcess on a directory fails with
+        # WinError 5 "Access is denied" instead of naming the real problem.
+        return desktop_exe(env)
     for sub in _DESKTOP_SUBPATHS:
         exe = os.path.join(r"C:\Program Files", sub)
         if os.path.exists(exe):
@@ -114,6 +128,12 @@ def _dialog() -> bool:
 
 
 def _tables(ws: str) -> list[str]:
+    """Table names attached in the workspace's opaque metadata database.
+
+    Known zone: the `metadata.sqlitedb` file and its `Table` table are Desktop
+    internals, so a missing file, another schema or an unreadable database means
+    "not attached yet" (an empty list), never a crash of the oracle.
+    """
     for db in glob.glob(os.path.join(ws, "Data", "*.db")):
         meta = os.path.join(db, "metadata.sqlitedb")
         if os.path.exists(meta):
