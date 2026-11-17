@@ -130,6 +130,7 @@ agentic-bi-web-clone = "agentic_bi.web_report.web_cli:main"
 agentic-bi-board-guide = "agentic_bi.board_guide.guide_cli:main"
 agentic-bi-shots = "agentic_bi.shots.shots_cli:main"
 agentic-bi-guest-dashboard = "agentic_bi.guest_chain_cli:main"
+agentic-bi-constructor = "agentic_bi.constructor.cli:main"
 
 [tool.ruff]
 line-length = 88

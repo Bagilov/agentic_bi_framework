@@ -1,0 +1,52 @@
+{
+  "name": "sales_overview",
+  "model": {
+    "tables": {
+      "Sales": {
+        "columns": {
+          "region": "string",
+          "product": "string",
+          "amount": "double"
+        },
+        "measures": {
+          "Total": "SUM(Sales[amount])"
+        }
+      }
+    }
+  },
+  "pages": [
+    {
+      "name": "overview",
+      "title": "Overview",
+      "visuals": [
+        {
+          "id": "total",
+          "kind": "card",
+          "table": "Sales",
+          "measure": "Total",
+          "title": "Total sales"
+        },
+        {
+          "id": "by_region",
+          "kind": "column",
+          "table": "Sales",
+          "axis": "region",
+          "value": "amount",
+          "title": "Sales by region"
+        },
+        {
+          "id": "detail",
+          "kind": "table",
+          "table": "Sales",
+          "columns": [
+            "region",
+            "product",
+            "amount"
+          ],
+          "span": 2,
+          "title": "Detail"
+        }
+      ]
+    }
+  ]
+}
