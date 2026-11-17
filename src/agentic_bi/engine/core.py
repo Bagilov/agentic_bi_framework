@@ -8,6 +8,7 @@ Host discovery, process plumbing and the oracle transport live in `engine.host`;
 this module is the pipeline itself.
 
 Public API:
+    database_name(raw) -> str
     EnginePipeline(template=..., desktop=..., work_dir=...)
     EnginePipeline.load_rows(path) -> list[dict]
     EnginePipeline.build_spec(rows, table, database) -> dict
@@ -45,7 +46,23 @@ from agentic_bi.engine.types import coerce, typed_column
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_TEMPLATE", "PBI_RS", "WS_ROOT", "EnginePipeline"]
+__all__ = ["DEFAULT_TEMPLATE", "PBI_RS", "WS_ROOT", "EnginePipeline", "database_name"]
+
+# Characters TOM refuses in an object name. A database name is usually derived
+# from a file stem (`Board.v2`), so the pipeline sanitizes it here instead of
+# letting the whole build fail with "The 'Name' property cannot contain ...".
+_FORBIDDEN_NAME_CHARS = frozenset(".,;'`:/\\*|\"?&%$!+=()[]{}<>")
+
+
+def database_name(raw: str) -> str:
+    """Return a Tabular-legal database name derived from `raw`.
+
+    Forbidden punctuation becomes `_` and an empty result falls back to
+    `Board`, so a caller can pass a file stem (`board.4706163d`) without
+    knowing TOM's naming rules.
+    """
+    text = "".join("_" if ch in _FORBIDDEN_NAME_CHARS else ch for ch in raw.strip())
+    return text or "Board"
 
 
 class EnginePipeline:
@@ -79,15 +96,30 @@ class EnginePipeline:
         raise ValueError(f"unsupported input: {path.suffix}")
 
     @staticmethod
-    def build_spec(rows: list[dict], table: str, database: str) -> dict:
-        """Infer column types and return the build spec for the engine."""
+    def build_spec(
+        rows: list[dict], table: str, database: str, mode: str | None = None
+    ) -> dict:
+        """Infer column types and return the build spec for the engine.
+
+        `mode` selects how inline rows are encoded by the build script: `dax`
+        (a calculated DATATABLE table, the default) or `m` (an import partition
+        with `Table.FromRows`, needed for NULLs and a caller-supplied query).
+        """
         if not rows:
             raise ValueError("no rows")
+        if mode is not None and mode not in ("dax", "m"):
+            raise ValueError(f"unsupported engine mode {mode!r}; use dax or m")
         cols = []
         for key in rows[0].keys():
             vals = [coerce(r.get(key)) for r in rows]
             cols.append(typed_column(key, vals))
-        return {"database": database, "tables": [{"name": table, "columns": cols}]}
+        spec: dict = {
+            "database": database_name(database),
+            "tables": [{"name": table, "columns": cols}],
+        }
+        if mode:
+            spec["mode"] = mode
+        return spec
 
     # -- engine -------------------------------------------------------------
     def build_datamodel(self, spec: dict) -> bytes:
