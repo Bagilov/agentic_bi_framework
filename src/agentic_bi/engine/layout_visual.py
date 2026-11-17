@@ -26,6 +26,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from agentic_bi.engine.layout_catalog import (
+    _EXTRA_VALUE_KINDS,
     _REQUIRED,
     _SERIES_KINDS,
     _VISUAL_TYPES,
@@ -59,7 +60,10 @@ class Visual:
     x/y/size- scatter measures (X, Y, bubble Size); aggregated by `agg`
     trend   - KPI trend-axis column
     series  - optional Series breakdown column (see `_SERIES_KINDS`)
-    title   - an optional title
+    extra_values - extra value columns on the Y role (see `_EXTRA_VALUE_KINDS`)
+    title   - an optional title (a container object: `vcObjects.title`)
+    description - optional subtitle rendered under the title
+    tooltip - optional tooltip text (`objects.visualTooltip`)
     pos     - an optional position (x, y, w, h)
     """
 
@@ -77,6 +81,9 @@ class Visual:
     series: str | None = None
     title: str | None = None
     pos: tuple[int, int, int, int] | None = None
+    description: str | None = None
+    tooltip: str | None = None
+    extra_values: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.kind not in _VISUAL_TYPES:
@@ -91,6 +98,13 @@ class Visual:
             raise ValueError(
                 f"visual '{self.kind}' has no Series role; "
                 f"kind must be one of: {', '.join(sorted(_SERIES_KINDS))}"
+            )
+        if self.extra_values and self.kind not in _EXTRA_VALUE_KINDS:
+            # A second Y value on a pie/donut/card has no meaning; silently
+            # dropping it would produce a visual that ignores a declared field.
+            raise ValueError(
+                f"visual '{self.kind}' has no multi-value Y role; "
+                f"kind must be one of: {', '.join(sorted(_EXTRA_VALUE_KINDS))}"
             )
 
 
@@ -182,16 +196,33 @@ def _visual_config(v: Visual) -> dict:
         val_ref = add_value()
         order.append({"Direction": 1, "Expression": _col_ref(src, axis)})
         projections["Category"] = [{"queryRef": axis_ref}]
-        projections["Y"] = [{"queryRef": val_ref}]
+        y_refs = [{"queryRef": val_ref}]
+        y_refs.extend({"queryRef": add_agg(extra)} for extra in v.extra_values)
+        projections["Y"] = y_refs
         if v.series:  # `__post_init__` guarantees the kind supports Series
             projections["Series"] = [{"queryRef": add_column(v.series)}]
 
-    objects = {}
+    objects: dict[str, list[dict]] = {}
+    vc_objects: dict[str, list[dict]] = {}
     if v.title:
-        objects["title"] = [
+        # A title is a *container* object: Desktop ignores `objects.title` and
+        # draws an automatic title from the field name instead (measured on the
+        # guest), so the text has to live in `singleVisual.vcObjects`.
+        title_props: dict[str, dict] = {
+            "show": {"expr": {"Literal": {"Value": "true"}}},
+            "text": {"expr": {"Literal": {"Value": dax_literal(v.title)}}},
+        }
+        if v.description:
+            title_props["subTitle"] = {
+                "expr": {"Literal": {"Value": dax_literal(v.description)}}
+            }
+        vc_objects["title"] = [{"properties": title_props}]
+    if v.tooltip:
+        objects["visualTooltip"] = [
             {
                 "properties": {
-                    "text": {"expr": {"Literal": {"Value": dax_literal(v.title)}}}
+                    "type": {"expr": {"Literal": {"Value": "'Default'"}}},
+                    "text": {"expr": {"Literal": {"Value": dax_literal(v.tooltip)}}},
                 }
             }
         ]
@@ -228,7 +259,7 @@ def _visual_config(v: Visual) -> dict:
             },
             "drillFilterOtherVisuals": True,
             "objects": objects,
-            "vcObjects": {},
+            "vcObjects": vc_objects,
         },
         "howCreated": "manual",
     }

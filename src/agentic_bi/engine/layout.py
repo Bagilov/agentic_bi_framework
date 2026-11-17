@@ -12,16 +12,17 @@ Several visual types are supported (donor visuals are not used):
     slicer  - slicer (dropdown) by a column
 
 Public API:
-    Visual(kind, table, columns=..., axis=..., value=..., agg="sum", title=...,
-           pos=..., filters=...)
+    Visual(kind, table, columns=..., axis=..., value=..., agg="sum", measure=...,
+           extra_values=..., title=..., description=..., tooltip=..., pos=...)
+    build_report_dict(pages, canvas=..., margin=..., gutter=...) -> dict
     build_report(pages) -> bytes
     build_layout(table, columns, page_name=None) -> bytes
     build_layout_from_spec(spec, visuals=None, page_name=None) -> bytes
 
 Aggregations (agg): sum, avg, min, max, count, count_nonnull, median, stddev, var.
-Visual-level filters (`Visual.filters`) are supported, but the `column IN (...)`
-form (Condition.In) is NOT generated: it crashes the pivot serializer on expand
-(`visitIn`/`serializeAll`). For a slicer/cross-filter use `slicer` + `matrix`.
+A visual carries no filter of its own: the `column IN (...)` form (Condition.In)
+is not generated because it crashes the pivot serializer on expand
+(`visitIn`/`serializeAll`). For a slicer/cross-filter use a `slicer` + `matrix`.
 """
 
 from __future__ import annotations
@@ -37,29 +38,48 @@ logger = logging.getLogger(__name__)
 _THEME = "CY24SU05"
 
 
-def build_report(pages: list[tuple[str, list[Visual]]], report_id: int = 0) -> bytes:
-    """Return the bytes of `Report/Layout` for pages = [(name, [Visual, ...])].
+def build_report_dict(
+    pages: list[tuple[str, list[Visual]]],
+    report_id: int = 0,
+    canvas: tuple[int, int] = (1280, 1050),
+    margin: int = 20,
+    gutter: int = 20,
+) -> dict:
+    """Return `Report/Layout` as a dict (the shape `build_report` encodes).
 
-    At least one page is required: a report with zero sections has no
-    `boundSection` for its pod and is not a valid Power BI layout, so an empty
-    `pages` is a `ValueError` rather than an `IndexError` further down.
+    Args:
+        pages: pages as `[(name, [Visual, ...])]`; at least one is required.
+        report_id: the numeric report id stored in the layout.
+        canvas: the minimum page size `(width, height)`.
+        margin: distance between a visual and the page edge.
+        gutter: space between two auto-placed visuals.
+
+    Raises:
+        ValueError: when `pages` is empty (a report with zero sections is not a
+            valid Power BI layout: its pod has no `boundSection`) or when
+            `canvas`, `margin` or `gutter` is not a usable positive size.
     """
     if not pages:
         raise ValueError("a report needs at least one page")
+    canvas_w, canvas_h = (int(canvas[0]), int(canvas[1]))
+    if canvas_w <= 0 or canvas_h <= 0:
+        raise ValueError(f"canvas must be positive, got {canvas!r}")
+    if margin < 0 or gutter < 0:
+        raise ValueError(f"margin/gutter must be >= 0, got {margin}/{gutter}")
+    cell_w, cell_h, cols = 620, 300, 2
     sections = []
     for ordinal, (page_name, visuals) in enumerate(pages):
-        w, h, cols = 620, 300, 2
         containers = []
         for i, v in enumerate(visuals):
             if v.pos is not None:
                 x, y, vw, vh = v.pos
             else:
-                x = 20 + (i % cols) * (w + 20)
-                y = 20 + (i // cols) * (h + 20)
-                vw, vh = w, h
+                x = margin + (i % cols) * (cell_w + gutter)
+                y = margin + (i // cols) * (cell_h + gutter)
+                vw, vh = cell_w, cell_h
             containers.append(_container(v, x, y, vw, vh))
-        page_w = max([1280] + [c["x"] + c["width"] + 20 for c in containers])
-        page_h = max([1050] + [c["y"] + c["height"] + 20 for c in containers])
+        page_w = max([canvas_w] + [c["x"] + c["width"] + 20 for c in containers])
+        page_h = max([canvas_h] + [c["y"] + c["height"] + 20 for c in containers])
         sections.append(
             {
                 "id": uuid.uuid4().int % 100000000,
@@ -134,6 +154,16 @@ def build_report(pages: list[tuple[str, list[Visual]]], report_id: int = 0) -> b
         "layoutOptimization": 0,
         "pods": [{"name": "Pod", "boundSection": sections[0]["name"], "config": "{}"}],
     }
+    return layout
+
+
+def build_report(pages: list[tuple[str, list[Visual]]], report_id: int = 0) -> bytes:
+    """Return the bytes of `Report/Layout` for pages = [(name, [Visual, ...])].
+
+    A thin encoder over `build_report_dict`: Desktop reads plain UTF-16LE
+    without a BOM, so the dict is serialized that way.
+    """
+    layout = build_report_dict(pages, report_id)
     return json.dumps(layout, ensure_ascii=False).encode("utf-16-le")
 
 

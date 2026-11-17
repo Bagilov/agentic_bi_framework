@@ -7,6 +7,7 @@ which fields a visual must carry before it is assembled.
 Public API (re-exported by `engine.layout_visual`):
     _VISUAL_TYPES   - kind -> QOM visualType
     _SERIES_KINDS   - kinds whose projections accept a `Series` role
+    _EXTRA_VALUE_KINDS - kinds whose Y projection accepts extra value columns
     _REQUIRED       - kind -> groups of required attributes (one per group)
 """
 
@@ -44,6 +45,14 @@ _VISUAL_TYPES = {
 # is honoured for them instead of being dropped silently.
 _SERIES_KINDS = frozenset(
     {"column", "bar", "stackedColumn", "stackedBar", "line", "area", "pie", "donut"}
+)
+
+# Kinds whose Y projection accepts more than one value (`Visual.extra_values`).
+# A second Y on a pie/donut would not be a second slice measure but a second
+# pie, and card/gauge/kpi have a single value by construction, so declaring an
+# extra value there is rejected instead of dropped.
+_EXTRA_VALUE_KINDS = frozenset(
+    {"column", "bar", "stackedColumn", "stackedBar", "line", "area"}
 )
 
 # Per-kind required inputs, checked in `Visual.__post_init__`. Each entry is a

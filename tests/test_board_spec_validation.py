@@ -81,7 +81,9 @@ class TestVisualTitleDaxLiteral:
         from agentic_bi.engine_layout_visual import Visual, _visual_config
 
         cfg = _visual_config(Visual("card", table="t", measure="m", title="Sales '23"))
-        value = cfg["singleVisual"]["objects"]["title"][0]["properties"]["text"][
+        # A title is a container object: Desktop ignores `objects.title` and
+        # draws an automatic title from the field name instead.
+        value = cfg["singleVisual"]["vcObjects"]["title"][0]["properties"]["text"][
             "expr"
         ]["Literal"]["Value"]
         assert value == "'Sales ''23'"
