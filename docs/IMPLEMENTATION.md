@@ -1131,3 +1131,92 @@ Notes, each measured rather than assumed:
   browser).
 
 Process description (RU): [docs/SHOTS.md](SHOTS.md).
+
+## 20. Deterministic dashboard constructor (`constructor/`)
+
+A design is the "base structure" of a dashboard: pages and the blocks on them.
+The constructor compiles it into `Report/Layout`, assembles a `.pbix` (on a donor
+model, on a ready `DataModel`, or on a model built from rows) and then verifies
+the artifact against the design. Nothing is decided for the author: an agent
+passes a block list, the constructor places and checks it.
+
+| module | role |
+|---|---|
+| `constructor/blocks.py` | block catalogue (kind, required/optional fields, Power BI aliases) |
+| `constructor/design.py` | `Design`, `PageDesign`, `VisualDesign` (untrusted JSON/YAML in) |
+| `constructor/model.py`, `model_context.py` | tables/columns/measures/relationships, `to_spec` for the engine |
+| `constructor/layout.py` | deterministic placement and `build_report_dict` |
+| `constructor/validate*.py` | field, model-reference and geometry checks -> `Issue` list |
+| `constructor/build_paths.py`, `rows.py` | donor / engine / live-data assembly, row type coercion |
+| `constructor/builder.py` | `Constructor`: preview, spec, preflight, build, test |
+| `constructor/report.py`, `schema.py` | `TestReport` (JSON/Markdown) and JSON Schemas |
+| `constructor/cli.py`, `cli_output.py` | `agentic-bi-constructor` |
+
+### CLI
+
+```bash
+agentic-bi-constructor --catalog                  # block catalogue as JSON
+agentic-bi-constructor --schema design            # JSON Schema (design/context/report)
+agentic-bi-constructor --design d.json --check    # validate only, writes nothing
+agentic-bi-constructor --design d.json --preview  # placement table, writes nothing
+agentic-bi-constructor --design d.json --out out/ # Report/Layout + report
+agentic-bi-constructor --design d.json --donor donor.pbix --out out/board.pbix
+agentic-bi-constructor --design d.json --context-from donor.pbix --check
+```
+
+Exit codes: 0 the work succeeded (no critical check failed), 1 it ran and the
+artifact failed its checks, 2 bad input or configuration.
+
+### API
+
+```python
+from agentic_bi.constructor import Constructor, Design
+
+ctor = Constructor(Design.load("design.json"))
+ctor.validate_or_raise()
+ctor.build_donor("donor.pbix", "out/board.pbix")
+report = ctor.test("out/board.pbix")
+assert report.critical_ok, report.to_markdown()
+```
+
+Notes, each measured rather than assumed:
+
+- A title is a **container** object (`singleVisual.vcObjects.title` with
+  `show=true`). Desktop ignores `objects.title` and draws an automatic title from
+  the field name instead, so the text had to move.
+- `validate_design` runs before any artifact: an unknown table/column/measure, a
+  `sum` over a string or date, a slicer by a measure, an unsupported
+  visual/page filter, a duplicate id, an out-of-page or overlapping `pos` is an
+  `Issue` with its page and block, not a blank visual later.
+- `preflight(donor)` compares the design with the donor's **actual** model, so a
+  reference that exists in the design context but not in the donor cannot ship.
+- The model name is derived through `engine.core.database_name`, because TOM
+  refuses `. , ; ' : / \ * | ? " & % $ ! + = ( ) [ ] { } < >` in an object name
+  and the guest chain names a per-run model after its file stem.
+- Rows are typed at the boundary: a non-integer for `int64`, an out-of-range
+  integer or a blank for a numeric column is a `ValueError` naming the cell.
+- `Constructor.test()` reuses `engine.verify` and `validate_pbix`, and skips the
+  layout/binding comparison for a merged donor build whose donor pages need not
+  reference the new context.
+
+## 21. Known zones outside the perimeter
+
+Some of the data this framework reasons about is produced by systems we neither
+own nor have in our environment. Those places are marked as **known zones**: the
+code may detect that the zone exists and react to its verdict, but the zone's
+internals are deliberately opaque, and any method that touches one says so in
+its docstring. Details are implementation-specific and belong to the concrete
+deployment, not to this repository.
+
+| zone | what is opaque | what the code does |
+|---|---|---|
+| Portal metadata database | the database behind the portal catalog: access grants, execution logs, favorites, server objects | the portal is reached only through its public OData/REST API (`reportserver/`); no SQL, schema, table name or connection string is shipped |
+| Oracle sources in lineage | the database behind an `Oracle.Database`/ODP.NET connection, typically the portal metadata store | `lineage_sources` reports the source as an external Oracle database with redacted details (`ORACLE_DETAIL`, `ORACLE_BOUNDARY_NOTE`); no connection string or object name is parsed out of the M code |
+| Power BI Desktop internals (oracle) | the analysis-services workspace directory, its SQLite metadata database, crash dumps and window titles | `_engine_oracle.py` probes them read-only to decide `MODEL_LOADED`; a missing file or another schema means "not attached", never a crash |
+| Donor `.pbix` VertiPaq model | the binary model that supplies the actual tables/columns/measures | the build reuses the operator's donor (`PBI_RS_TEMPLATE`) instead of recreating the compressed model |
+
+Rule: when work has to touch a known zone, keep the boundary explicit — one
+documented detection point, a redacted or opaque payload, and no assumption that
+the zone is available. If a zone is unavailable (no portal, no Oracle, no
+Desktop), the result is a named unresolved/`SKIPPED` status, not a silent
+success and not a fabricated value.

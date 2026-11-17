@@ -36,10 +36,12 @@ agentic_bi_framework/
 │   ├── web_report_clone.py    # HTML clone of a dashboard + per-element checks
 │   ├── board_guide.py         # annotated screenshot guide of a `.pbix`
 │   ├── figures.toml           # declarative screenshot figure set (agentic-bi-shots)
+│   ├── design_example.json    # declarative dashboard design (agentic-bi-constructor)
 │   └── engine_sales.csv
 ├── pyproject.toml             # packaging & optional dependency groups
 └── src/agentic_bi/            # the implementation (depth)
     ├── board.py               # declarative Board/Page builder
+    ├── constructor/           # design -> layout/.pbix + reverse checks (agentic-bi-constructor)
     ├── settings.py            # model object names (overridable defaults)
     ├── skeleton/              # PBIP skeleton + layout generation
     ├── rebuild.py             # fold layout into a donor .pbix

@@ -18,6 +18,14 @@ CLI:
 Results are written to `output_dir` from the config
 (`reportserver_diagnostics_config.json`); if absent, use the CLI/config.
 No host or network path is hardcoded.
+
+Known zone outside the perimeter: what the portal reports here is served by the
+portal's own metadata database (catalog, access grants, execution logs,
+favorites). That database is not part of this solution and is not present in our
+environment; which engine backs it, its schema and its credentials are specific
+to a concrete installation. This module therefore consumes only the public OData
+API and never queries that database directly, and no table, schema, SQL or
+connection detail belongs in this codebase.
 """
 
 from __future__ import annotations
