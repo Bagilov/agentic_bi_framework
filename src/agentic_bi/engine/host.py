@@ -156,6 +156,10 @@ def run_engine_build(spec_path: Path, abf: Path, port: int | None = None) -> str
     out_tail = ""
     err_tail = ""
     for attempt in (1, 2):
+        # The output of a *previous* run must not be mistaken for this one: a
+        # stale `.abf` made a script that died on its first line look successful
+        # and produced a model with no tables (found on the guest).
+        abf.unlink(missing_ok=True)
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if abf.exists():
             return (proc.stdout or "")[-400:]
