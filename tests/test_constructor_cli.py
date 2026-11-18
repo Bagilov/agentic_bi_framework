@@ -9,6 +9,7 @@ of a traceback. `--json` keeps the machine-readable path working on failure too.
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -229,6 +230,38 @@ class TestMissingDonor:
         assert code == EXIT_BAD_INPUT
         captured = capsys.readouterr()
         assert "assembly" in captured.out
+
+
+class TestBadInputArtifacts:
+    def test_a_malformed_yaml_design_is_one_message(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        pytest.importorskip("yaml")
+        path = tmp_path / "design.yaml"
+        path.write_text("pages: [unclosed", encoding="utf-8")
+        code = main(["--design", str(path), "--check"])
+        assert code == EXIT_BAD_INPUT
+        assert "invalid YAML" in capsys.readouterr().err
+
+    def test_a_donor_zip_without_layout_is_bad_input(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        donor = tmp_path / "donor.pbix"
+        with zipfile.ZipFile(donor, "w") as z:
+            z.writestr("Version", "1.28")
+        code = main(
+            [
+                "--design",
+                str(_write_design(tmp_path)),
+                "--out",
+                str(tmp_path / "o.pbix"),
+                "--donor",
+                str(donor),
+                "--no-preflight",
+            ]
+        )
+        assert code == EXIT_BAD_INPUT
+        assert "assembly" in capsys.readouterr().out
 
 
 class TestSchemaApi:

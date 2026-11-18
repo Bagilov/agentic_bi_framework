@@ -7,6 +7,7 @@ string or a date). Every finding is a `Issue` located at the block.
 
 Public API:
     check_model_refs(block, model, path, issues) -> None
+    check_name_collisions(model, issues) -> None
 """
 
 from __future__ import annotations
@@ -96,4 +97,26 @@ def check_model_refs(
                 )
 
 
-__all__ = ["check_model_refs"]
+def check_name_collisions(model: ModelContext, issues: list[Issue]) -> None:
+    """Reject a measure whose name is also a column of the same table.
+
+    TOM refuses such a measure and the build script skips it with a log line,
+    so the build would succeed while the visual renders blank. The gate catches
+    it before any artifact, whether or not a visual uses the measure. Tabular
+    names are case-insensitive, so `Amount` over `amount` collides too.
+    """
+    for name, table in model.tables.items():
+        columns_low = {column.lower() for column in table.columns}
+        for measure in table.measures:
+            if measure.lower() in columns_low:
+                issues.append(
+                    _err(
+                        "measure_column_collision",
+                        f"measure {name}.{measure} has the same name as a column; "
+                        "the engine would drop the measure",
+                        f"model.tables[{name}]",
+                    )
+                )
+
+
+__all__ = ["check_model_refs", "check_name_collisions"]

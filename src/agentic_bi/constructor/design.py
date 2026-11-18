@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentic_bi.constructor.blocks import resolve_kind
-from agentic_bi.constructor.model import load_mapping, str_or_none
+from agentic_bi.constructor.model import load_mapping, norm_pos, str_or_none, strict_int
 from agentic_bi.constructor.model_context import ModelContext
 
 DEFAULT_WIDTH = 1280
@@ -40,19 +40,6 @@ def _list_of_str(raw: object, field_name: str, kind: str) -> list[str]:
     if any(not name for name in names):
         raise ValueError(f"{kind}: {field_name} contains an empty name")
     return names
-
-
-def _norm_pos(raw: object, kind: str) -> tuple[int, int, int, int] | None:
-    """Read a `[x, y, w, h]` position with a message that names the block."""
-    if raw is None:
-        return None
-    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
-        raise ValueError(f"{kind}: pos must be [x, y, w, h], got {raw!r}")
-    try:
-        x, y, w, h = (int(v) for v in raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{kind}: pos must be 4 ints, got {raw!r}") from exc
-    return (x, y, w, h)
 
 
 def _norm_filters(raw: object, where: str) -> list[dict[str, object]]:
@@ -122,7 +109,7 @@ class VisualDesign:
             title=str_or_none(raw.get("title")),
             description=str_or_none(raw.get("description")),
             tooltip=str_or_none(raw.get("tooltip")),
-            pos=_norm_pos(raw.get("pos"), kind),
+            pos=norm_pos(raw.get("pos"), kind),
             span=span,
             filters=_norm_filters(raw.get("filters"), f"visual {block_id!r}"),
             block_id=str(raw.get("id") or block_id).strip(),
@@ -144,6 +131,16 @@ class VisualDesign:
             "tooltip": self.tooltip,
             "pos": self.pos,
         }
+
+
+def _page_dim(raw: object, name: str, field_name: str, default: int) -> int:
+    """Read one canvas dimension: absent keeps the default, zero is an error."""
+    if raw is None:
+        return default
+    value = strict_int(raw, f"page {name!r}: {field_name}")
+    if value <= 0:
+        raise ValueError(f"page {name!r}: {field_name} must be positive, got {raw!r}")
+    return value
 
 
 @dataclass
@@ -173,11 +170,8 @@ class PageDesign:
         visuals_raw = raw.get("visuals") or []
         if not isinstance(visuals_raw, (list, tuple)):
             raise ValueError(f"page {name!r}: visuals must be a list")
-        try:
-            width = int(raw.get("width") or DEFAULT_WIDTH)
-            height = int(raw.get("height") or DEFAULT_HEIGHT)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"page {name!r}: width/height must be integers") from exc
+        width = _page_dim(raw.get("width"), name, "width", DEFAULT_WIDTH)
+        height = _page_dim(raw.get("height"), name, "height", DEFAULT_HEIGHT)
         visuals = [
             VisualDesign.from_dict(visual, block_id=f"{name}_{j + 1}")
             for j, visual in enumerate(visuals_raw)

@@ -135,3 +135,28 @@ class TestCompiledLayout:
         first = compile_design(design).positions
         second = compile_design(design).positions
         assert first == second
+
+    def test_two_compilations_are_byte_identical(self) -> None:
+        design = _design({"name": "p", "visuals": [_card(), _card(title="Second")]})
+        first = compile_design(design).layout_bytes()
+        second = compile_design(design).layout_bytes()
+        assert first == second
+
+    def test_section_and_visual_names_are_unique(self) -> None:
+        design = Design.from_dict(
+            {
+                "pages": [
+                    {"name": "p", "visuals": [_card(), _card()]},
+                    {"name": "q", "visuals": [_card()]},
+                ]
+            }
+        )
+        layout = compile_design(design).layout
+        names = [section["name"] for section in layout["sections"]]
+        assert len(names) == len(set(names))
+        for section in layout["sections"]:
+            cfg_names = [
+                json.loads(c["config"])["name"] for c in section["visualContainers"]
+            ]
+            assert all(cfg_names)
+            assert len(cfg_names) == len(set(cfg_names))

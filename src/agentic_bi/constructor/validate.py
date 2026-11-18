@@ -28,7 +28,10 @@ from agentic_bi.constructor.design import (
 from agentic_bi.constructor.issues import Issue
 from agentic_bi.constructor.model import as_bool
 from agentic_bi.constructor.validate_geometry import check_page_geometry
-from agentic_bi.constructor.validate_model import check_model_refs
+from agentic_bi.constructor.validate_model import (
+    check_model_refs,
+    check_name_collisions,
+)
 
 _NUMERIC_AGGS = frozenset({"sum", "avg", "average", "median", "stddev", "var"})
 _CHART_KINDS = frozenset({"column", "bar", "line", "pie", "donut"})
@@ -253,6 +256,7 @@ def validate_design(design: Design) -> list[Issue]:
             _warn("no_model", "model context is empty; references are not checked")
         )
     _check_relationships(design.model, issues)
+    check_name_collisions(design.model, issues)
     return issues
 
 

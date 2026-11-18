@@ -126,6 +126,31 @@ class TestMakeVisual:
             )
         assert "pos" in str(exc.value)
 
+    @pytest.mark.parametrize(
+        "bad_pos", [[True, 2, 3, 4], [1.5, 2, 3, 4], [1, 2, 3, 4.25]]
+    )
+    def test_a_bool_or_fractional_pos_is_rejected(self, bad_pos: object) -> None:
+        with pytest.raises(ValueError) as exc:
+            make_visual(
+                {"kind": "table", "table": "t", "columns": ["a"], "pos": bad_pos}
+            )
+        assert "pos" in str(exc.value)
+
+    def test_an_integral_float_pos_is_accepted(self) -> None:
+        visual = make_visual(
+            {"kind": "table", "table": "t", "columns": ["a"], "pos": [10.0, 20, 30, 40]}
+        )
+        assert visual.pos == (10, 20, 30, 40)
+
+    @pytest.mark.parametrize("bad_pos", [["1_0", 2, 3, 4], ["١٢٣", 2, 3, 4]])
+    def test_python_only_integer_syntax_in_pos_is_rejected(
+        self, bad_pos: object
+    ) -> None:
+        with pytest.raises(ValueError):
+            make_visual(
+                {"kind": "table", "table": "t", "columns": ["a"], "pos": bad_pos}
+            )
+
     def test_an_unsupported_aggregation_names_the_block(self) -> None:
         with pytest.raises(ValueError) as exc:
             make_visual({"kind": "card", "table": "t", "value": "a", "agg": "mode"})

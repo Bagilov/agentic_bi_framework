@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,64 @@ class TestCoerceValue:
             coerce_value("abc", "double", "t[0].c")
         assert "expected double" in str(exc.value)
 
+    def test_a_large_integer_string_keeps_its_precision(self) -> None:
+        # A float round-trip loses every integer above 2**53.
+        assert coerce_value("9007199254740993", "int64", "t[0].c") == 9007199254740993
+
+    def test_an_exponent_form_for_int64_is_accepted(self) -> None:
+        assert coerce_value("1e3", "int64", "t[0].c") == 1000
+
+    @pytest.mark.parametrize("raw", ["inf", "-inf", "nan", float("inf")])
+    def test_a_non_finite_double_is_rejected(self, raw: object) -> None:
+        with pytest.raises(ValueError) as exc:
+            coerce_value(raw, "double", "Sales[0].amount")
+        assert "Sales[0].amount" in str(exc.value)
+        assert "finite" in str(exc.value)
+
+    def test_a_ru_date_string_normalizes_to_iso(self) -> None:
+        # Invariant-culture parsing on the guest would read this as May 6.
+        assert coerce_value("05.06.2024", "date", "t[0].d") == "2024-06-05T00:00:00"
+
+    def test_an_iso_date_string_normalizes_to_iso(self) -> None:
+        assert coerce_value("2024-06-05", "date", "t[0].d") == "2024-06-05T00:00:00"
+
+    def test_a_datetime_object_still_isoformats(self) -> None:
+        assert (
+            coerce_value(datetime(2024, 6, 5, 10, 30), "date", "t[0].d")
+            == "2024-06-05T10:30:00"
+        )
+
+    def test_a_non_date_string_names_the_cell(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            coerce_value("not-a-date", "date", "Sales[2].day")
+        assert "Sales[2].day" in str(exc.value)
+        assert "expected a date" in str(exc.value)
+
+    def test_a_sub_resolution_fraction_for_int64_is_rejected(self) -> None:
+        # float("0.99999999999999999") == 1.0; the value is not an integer.
+        with pytest.raises(ValueError):
+            coerce_value("0.99999999999999999", "int64", "t[0].c")
+
+    def test_a_large_decimal_form_int64_keeps_precision(self) -> None:
+        assert coerce_value("9007199254740993.0", "int64", "t[0].c") == 9007199254740993
+
+    @pytest.mark.parametrize("raw", ["1_000", "١٢٣"])
+    def test_python_only_integer_syntax_is_rejected(self, raw: str) -> None:
+        with pytest.raises(ValueError):
+            coerce_value(raw, "int64", "t[0].c")
+
+    def test_datetime_microseconds_normalize_to_seconds(self) -> None:
+        assert (
+            coerce_value(datetime(2024, 6, 5, 10, 30, 0, 123456), "date", "t[0].d")
+            == "2024-06-05T10:30:00"
+        )
+
+    def test_tz_aware_datetime_normalizes_like_the_string_channel(self) -> None:
+        aware = datetime(2024, 6, 5, 10, 30, tzinfo=timezone.utc)
+        assert coerce_value(aware, "date", "t[0].d") == coerce_value(
+            "2024-06-05 10:30:00", "date", "t[0].d"
+        )
+
 
 class TestNormalizeRows:
     def test_rows_are_coerced_and_named_by_table(self) -> None:
@@ -120,6 +179,21 @@ class TestNormalizeRows:
             normalize_rows(_design(), Frame())
         assert "table= is required" in str(exc.value)
         assert normalize_rows(_design(), Frame(), "Sales")["Sales"][0]["region"] == "EU"
+
+    def test_date_rows_normalize_to_iso(self) -> None:
+        design = Design.from_dict(
+            {
+                "model": {"tables": {"T": {"columns": {"d": "date"}}}},
+                "pages": [
+                    {
+                        "name": "p",
+                        "visuals": [{"kind": "table", "table": "T", "columns": ["d"]}],
+                    }
+                ],
+            }
+        )
+        rows = normalize_rows(design, {"T": [{"d": "05.06.2024"}, {"d": None}]})
+        assert rows == {"T": [{"d": "2024-06-05T00:00:00"}, {"d": None}]}
 
 
 class TestEngineGate:
@@ -195,6 +269,39 @@ class TestBuildPaths:
         with pytest.raises(ValueError) as exc:
             merge_into_donor(_layout_file(donor), compile_design(_design()).layout)
         assert "not valid JSON" in str(exc.value)
+
+    def test_merging_a_donor_without_layout_names_the_problem(self, tmp_path) -> None:
+        donor = tmp_path / "nolayout.pbix"
+        with zipfile.ZipFile(donor, "w") as z:
+            z.writestr("Version", "1.28")
+        with pytest.raises(ValueError) as exc:
+            merge_into_donor(donor, compile_design(_design()).layout)
+        assert "Report/Layout" in str(exc.value)
+
+    def test_merging_the_same_design_twice_keeps_names_unique(self) -> None:
+        compiled = compile_design(_design())
+        empty = {"sections": [], "pods": [], "config": "{}"}
+        first = merge_into_donor(_layout_file(empty), compiled.layout)
+        second = merge_into_donor(_layout_file(first), compiled.layout)
+        names = [section["name"] for section in second["sections"]]
+        assert len(names) == len(set(names))
+        assert {pod["boundSection"] for pod in second["pods"]} <= set(names)
+
+    def test_a_donor_with_non_object_sections_is_rejected(self) -> None:
+        donor = {"sections": ["x"], "pods": [], "config": "{}"}
+        with pytest.raises(ValueError) as exc:
+            merge_into_donor(_layout_file(donor), compile_design(_design()).layout)
+        assert "sections[0]" in str(exc.value)
+
+    def test_a_donor_with_a_bad_ordinal_is_rejected(self) -> None:
+        donor = {
+            "sections": [{"name": "a", "ordinal": "first"}],
+            "pods": [],
+            "config": "{}",
+        }
+        with pytest.raises(ValueError) as exc:
+            merge_into_donor(_layout_file(donor), compile_design(_design()).layout)
+        assert "ordinal" in str(exc.value)
 
     def test_engine_build_rejects_an_empty_datamodel(
         self, template_pbix: Path, tmp_path: Path
@@ -284,3 +391,116 @@ class TestConstructorFacade:
         report = Constructor(_design()).test(Path("nope.pbix"))
         assert not report.critical_ok
         assert report.checks[-1].name == "layout readable"
+
+    def test_a_corrupt_artifact_is_a_failed_check_not_an_exception(
+        self, tmp_path: Path
+    ) -> None:
+        bad = tmp_path / "bad.pbix"
+        bad.write_bytes(b"not a zip")
+        report = Constructor(_design()).test(bad)
+        assert not report.critical_ok
+        assert report.checks[-1].name == "layout readable"
+
+    def test_an_artifact_without_layout_is_a_failed_check(self, tmp_path: Path) -> None:
+        bad = tmp_path / "nolayout.pbix"
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("Version", "1.28")
+        report = Constructor(_design()).test(bad)
+        assert not report.critical_ok
+        assert report.checks[-1].name == "layout readable"
+
+
+class TestBuildState:
+    def test_a_live_build_tests_against_its_values(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import agentic_bi.constructor.build_paths as bp
+
+        class StubPipeline:
+            def __init__(self, **kwargs: object) -> None:
+                pass
+
+            def build_datamodel(self, spec: dict) -> bytes:
+                return b"MODEL"
+
+        monkeypatch.setattr(bp, "EnginePipeline", StubPipeline)
+        monkeypatch.setattr(
+            bp, "build_engine", lambda compiled, template, datamodel, out: Path(out)
+        )
+        ctor = Constructor(_design())
+        report = ctor.build_and_test(
+            tmp_path / "board.pbix",
+            data={"Sales": [{"region": "EU", "amount": "1.5", "qty": "2"}]},
+            template=tmp_path / "t.pbix",
+        )
+        assert report.meta["spec"] == "values"
+        assert ctor._values == {"Sales": [{"region": "EU", "amount": 1.5, "qty": 2}]}
+        spec = ctor.spec(ctor._values)
+        amount = next(c for c in spec["tables"][0]["columns"] if c["name"] == "amount")
+        assert amount["values"] == [1.5]
+
+    def test_a_merged_build_without_preflight_reports_the_skipped_registry(
+        self, template_pbix: Path, tmp_path: Path
+    ) -> None:
+        ctor = Constructor(_design())
+        out = tmp_path / "merged.pbix"
+        ctor.build_donor(template_pbix, out, keep_donor_pages=True, skip_preflight=True)
+        report = ctor.test(out)
+        skipped = [
+            c for c in report.checks if c.group == "registry" and c.level == "warning"
+        ]
+        assert skipped, report.to_markdown()
+        assert "skipped" in skipped[0].name
+
+    def test_an_empty_registry_reports_the_skipped_check(
+        self, template_pbix: Path, tmp_path: Path
+    ) -> None:
+        design = Design.from_dict(
+            {
+                "pages": [
+                    {
+                        "name": "p",
+                        "visuals": [{"kind": "card", "table": "T", "value": "a"}],
+                    }
+                ]
+            }
+        )
+        ctor = Constructor(design)
+        out = tmp_path / "board.pbix"
+        ctor.build_donor(template_pbix, out, skip_preflight=True)
+        report = ctor.test(out)
+        assert any(
+            c.group == "registry" and c.level == "warning" for c in report.checks
+        )
+
+    def test_a_failed_preflight_does_not_leave_the_merged_flag(
+        self, template_pbix: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agentic_bi.constructor.model_context import ModelContext
+
+        monkeypatch.setattr(
+            ModelContext,
+            "from_pbix",
+            classmethod(
+                lambda cls, pbix, **kw: cls.from_dict(
+                    {"tables": {"Real": {"columns": {"a": "string"}}}}
+                )
+            ),
+        )
+        design = Design.from_dict(
+            {
+                "model": {"tables": {"Missing": {"columns": {"a": "string"}}}},
+                "pages": [
+                    {
+                        "name": "p",
+                        "visuals": [
+                            {"kind": "table", "table": "Missing", "columns": ["a"]}
+                        ],
+                    }
+                ],
+            }
+        )
+        ctor = Constructor(design)
+        with pytest.raises(DesignError):
+            ctor.build_donor(template_pbix, tmp_path / "x.pbix", keep_donor_pages=True)
+        assert ctor._merged is False

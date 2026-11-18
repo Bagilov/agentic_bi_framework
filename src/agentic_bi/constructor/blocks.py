@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agentic_bi.constructor.model import norm_pos
 from agentic_bi.engine.layout_catalog import _VISUAL_TYPES
 from agentic_bi.engine.layout_visual import Visual
 
@@ -252,16 +253,7 @@ def make_visual(block: dict[str, object]) -> Visual:
         ValueError: unknown `kind`, malformed `pos`, or an unsupported `agg`.
     """
     kind = resolve_kind(str(block.get("kind") or ""))
-    position: tuple[int, int, int, int] | None = None
-    raw_pos = block.get("pos")
-    if raw_pos is not None:
-        if not isinstance(raw_pos, (list, tuple)) or len(raw_pos) != 4:
-            raise ValueError(f"{kind}: pos must be [x, y, w, h], got {raw_pos!r}")
-        try:
-            x, y, w, h = (int(v) for v in raw_pos)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{kind}: pos must be 4 ints, got {raw_pos!r}") from exc
-        position = (x, y, w, h)
+    position = norm_pos(block.get("pos"), kind)
     agg = str(block.get("agg") or "sum").lower()
     if agg not in AGGREGATIONS:
         raise ValueError(f"{kind}: unsupported agg {agg!r}")

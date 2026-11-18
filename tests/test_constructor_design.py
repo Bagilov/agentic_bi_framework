@@ -209,6 +209,15 @@ class TestDesignParsing:
         assert "design.json" in str(exc.value)
         assert "invalid JSON" in str(exc.value)
 
+    def test_invalid_yaml_names_the_file(self, tmp_path) -> None:
+        pytest.importorskip("yaml")
+        path = tmp_path / "design.yaml"
+        path.write_text("pages: [unclosed", encoding="utf-8")
+        with pytest.raises(ValueError) as exc:
+            Design.load(path)
+        assert "design.yaml" in str(exc.value)
+        assert "invalid YAML" in str(exc.value)
+
     def test_a_non_object_design_is_rejected(self) -> None:
         with pytest.raises(ValueError) as exc:
             Design.from_dict(["pages"])
@@ -244,3 +253,36 @@ class TestVisualFields:
         with pytest.raises(ValueError) as exc:
             PageDesign.from_dict({"name": "p", "visuals": "card"})
         assert "visuals must be a list" in str(exc.value)
+
+    def test_a_fractional_pos_is_rejected(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            VisualDesign.from_dict({"kind": "card", "pos": [1.5, 0, 10, 10]})
+        assert "pos" in str(exc.value)
+
+
+class TestPageSize:
+    def test_a_zero_width_is_rejected_not_defaulted(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            PageDesign.from_dict({"name": "p", "width": 0, "visuals": []})
+        assert "width" in str(exc.value)
+
+    def test_a_fractional_height_is_rejected(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            PageDesign.from_dict({"name": "p", "height": 800.5, "visuals": []})
+        assert "height" in str(exc.value)
+
+    def test_a_bool_width_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            PageDesign.from_dict({"name": "p", "width": True, "visuals": []})
+
+    def test_a_missing_size_keeps_the_default(self) -> None:
+        page = PageDesign.from_dict({"name": "p", "visuals": []})
+        assert (page.width, page.height) == (1280, 800)
+
+    def test_an_integral_float_size_is_accepted(self) -> None:
+        page = PageDesign.from_dict({"name": "p", "width": 1280.0, "visuals": []})
+        assert page.width == 1280
+
+    def test_an_underscore_width_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            PageDesign.from_dict({"name": "p", "width": "1_000", "visuals": []})

@@ -2,9 +2,13 @@
 
 Rows arrive from a CSV/JSON file, a DataFrame or a caller's list, so every value
 is checked against the declared column type before it reaches the engine. A
-non-integer in an `int64` column, an out-of-range integer or a row that names a
-column the model does not have is a `ValueError` with its exact location
-(`Sales[3].amount`), not a silently missing value in the artifact.
+non-integer in an `int64` column, an out-of-range integer, a non-finite `double`
+or an unparseable date is a `ValueError` with its exact location
+(`Sales[3].amount`), not a silently missing value in the artifact. Integer text
+is parsed exactly (ASCII digits only; a float round-trip loses precision above
+2**53 and rounds sub-resolution fractions), and every date channel normalizes
+to the same ISO-seconds literal, so the guest never re-interprets `05.06.2024`
+with an invariant culture.
 
 Public API:
     Rows
@@ -14,11 +18,17 @@ Public API:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import math
+from decimal import Decimal
 
 from agentic_bi.constructor.design import Design
+from agentic_bi.constructor.model import _DEC_TEXT, _INT_TEXT
+from agentic_bi.engine.types import parse_date
 
 Rows = dict[str, list[dict[str, object]]]
+
+_INT64_MIN = Decimal(-(2**63))
+_INT64_MAX = Decimal(2**63 - 1)
 
 
 def _is_missing(value: object) -> bool:
@@ -27,7 +37,7 @@ def _is_missing(value: object) -> bool:
         return True
     if isinstance(value, float) and value != value:
         return True
-    if type(value).__name__ == "Decimal" and str(value) == "NaN":
+    if isinstance(value, Decimal) and value.is_nan():
         return True
     return type(value).__name__ in ("NaTType", "NAType")
 
@@ -37,7 +47,8 @@ def coerce_value(value: object, typ: str, where: str) -> object:
 
     Raises:
         ValueError: the value cannot be represented as `typ` (a non-integer for
-            `int64`, an out-of-range integer, a non-number for `double`).
+            `int64`, an out-of-range integer, a non-finite or non-number
+            `double`, an unparseable `date`).
     """
     if _is_missing(value):
         return None
@@ -54,25 +65,36 @@ def coerce_value(value: object, typ: str, where: str) -> object:
             if not -(2**63) <= value <= 2**63 - 1:
                 raise ValueError(f"{where}: int64 out of range: {value!r}")
             return value
-        try:
-            number = float(str(value))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{where}: expected int64, got {value!r}") from exc
-        if not number.is_integer():
+        text = str(value).strip()
+        if _INT_TEXT.fullmatch(text):
+            result = int(text)
+        elif _DEC_TEXT.fullmatch(text):
+            # Decimal keeps every digit: float would round a sub-resolution
+            # fraction to an integer and lose precision above 2**53.
+            dec = Decimal(text)
+            if dec != dec.to_integral_value():
+                raise ValueError(f"{where}: expected int64, got {value!r}")
+            if not (_INT64_MIN <= dec <= _INT64_MAX):
+                raise ValueError(f"{where}: int64 out of range: {value!r}")
+            result = int(dec)
+        else:
             raise ValueError(f"{where}: expected int64, got {value!r}")
-        result = int(number)
         if not -(2**63) <= result <= 2**63 - 1:
             raise ValueError(f"{where}: int64 out of range: {value!r}")
         return result
     if typ == "double":
         try:
-            return float(str(value))
+            number = float(str(value))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{where}: expected double, got {value!r}") from exc
+        if not math.isfinite(number):
+            raise ValueError(f"{where}: expected a finite double, got {value!r}")
+        return number
     if typ == "date":
-        if isinstance(value, (datetime, date)):
-            return value.isoformat()
-        return str(value)
+        iso = parse_date(value)
+        if iso is None:
+            raise ValueError(f"{where}: expected a date, got {value!r}")
+        return iso
     return value
 
 

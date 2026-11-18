@@ -271,6 +271,89 @@ class TestRelationships:
         assert any("isActive must be boolean" in i.message for i in issues)
 
 
+class TestNameCollisions:
+    def test_a_measure_named_like_a_column_is_an_error(self) -> None:
+        # TOM rejects such a measure and the build script skips it silently, so
+        # the gate must catch it before the artifact: the visual renders blank.
+        model = {
+            "tables": {
+                "Sales": {
+                    "columns": {"amount": "double"},
+                    "measures": {"amount": "SUM(Sales[amount])"},
+                }
+            }
+        }
+        design = Design.from_dict(
+            {
+                "model": model,
+                "pages": [
+                    {
+                        "name": "p",
+                        "visuals": [
+                            {"kind": "card", "table": "Sales", "measure": "amount"}
+                        ],
+                    }
+                ],
+            }
+        )
+        issues = validate_design(design)
+        collisions = [i for i in issues if i.code == "measure_column_collision"]
+        assert collisions, _codes(issues)
+        assert collisions[0].path == "model.tables[Sales]"
+        assert collisions[0].severity == "error"
+
+    def test_a_collision_is_found_even_when_no_visual_uses_the_measure(self) -> None:
+        design = Design.from_dict(
+            {
+                "model": {
+                    "tables": {
+                        "Sales": {
+                            "columns": {"Total": "double"},
+                            "measures": {"Total": "1"},
+                        }
+                    }
+                },
+                "pages": [
+                    {
+                        "name": "p",
+                        "visuals": [
+                            {"kind": "card", "table": "Sales", "value": "Total"}
+                        ],
+                    }
+                ],
+            }
+        )
+        assert "measure_column_collision" in _codes(validate_design(design))
+
+    def test_distinct_names_produce_no_collision(self) -> None:
+        assert _check([{}]) == []
+
+    def test_a_case_only_collision_is_an_error(self) -> None:
+        # Tabular names are case-insensitive: measure "Amount" over column
+        # "amount" is refused by TOM and skipped by the build script.
+        design = Design.from_dict(
+            {
+                "model": {
+                    "tables": {
+                        "Sales": {
+                            "columns": {"amount": "double"},
+                            "measures": {"Amount": "SUM(Sales[amount])"},
+                        }
+                    }
+                },
+                "pages": [
+                    {
+                        "name": "p",
+                        "visuals": [
+                            {"kind": "card", "table": "Sales", "measure": "Amount"}
+                        ],
+                    }
+                ],
+            }
+        )
+        assert "measure_column_collision" in _codes(validate_design(design))
+
+
 class TestIssuesApi:
     def test_raise_for_errors_only_raises_on_errors(self) -> None:
         design = Design.from_dict(

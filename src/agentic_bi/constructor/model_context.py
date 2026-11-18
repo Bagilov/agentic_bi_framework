@@ -33,7 +33,13 @@ from agentic_bi.engine.core import database_name
 
 @dataclass
 class ModelContext:
-    """The model a design refers to, plus how to build it."""
+    """The model a design refers to, plus how to build it.
+
+    Relationships are many-to-one links with a fixed cardinality:
+    `fromTable`/`fromColumn` is the *many* side and `toTable`/`toColumn` the
+    *one* side (the engine build script creates them with exactly that
+    cardinality, so a reversed declaration filters in the wrong direction).
+    """
 
     database: str = DEFAULT_DATABASE
     tables: dict[str, TableContext] = field(default_factory=dict)

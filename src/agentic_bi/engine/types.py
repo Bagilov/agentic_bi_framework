@@ -66,6 +66,29 @@ def to_iso(v) -> str:
     return str(v)
 
 
+def parse_date(v: object) -> str | None:
+    """Normalize one date value to ISO seconds, or `None` when unparseable.
+
+    A single pass over `_DATE_FORMATS` (no validate-then-convert double scan).
+    `datetime`/`date` objects and strings normalize identically — truncated to
+    seconds, no sub-second part or tz offset — so every input channel reaches
+    the engine as the same literal the DAX `DATE()+TIME()` build will store.
+    """
+    if isinstance(v, _dt.datetime):
+        return v.strftime("%Y-%m-%dT%H:%M:%S")
+    if isinstance(v, _dt.date):
+        return v.strftime("%Y-%m-%dT00:00:00")
+    if not isinstance(v, str):
+        return None
+    text = v.strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return _dt.datetime.strptime(text, fmt).strftime("%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            continue
+    return None
+
+
 def typed_column(name: str, vals: list) -> dict:
     """Return {name,type,values} with a normalized type."""
     nn = [v for v in vals if v is not None]

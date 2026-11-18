@@ -19,10 +19,16 @@ Public API:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_DATABASE = "Dashboard"
+
+# Strict ASCII integer text: a sign is allowed, digit-group underscores and
+# Unicode digits are not (int()/float() would silently accept both).
+_INT_TEXT = re.compile(r"[+-]?[0-9]+")
+_DEC_TEXT = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
 
 _TYPE_ALIASES = {
     "str": "string",
@@ -74,7 +80,8 @@ def load_mapping(path: str | Path) -> dict[str, object]:
     """Read a JSON/YAML object from `path`.
 
     Raises:
-        ValueError: the file is not an object, or PyYAML is missing for YAML.
+        ValueError: the file is not an object, the JSON/YAML is malformed, or
+            PyYAML is missing for YAML.
         OSError: the file cannot be read.
     """
     path = Path(path)
@@ -85,7 +92,10 @@ def load_mapping(path: str | Path) -> dict[str, object]:
             import yaml
         except ImportError as exc:
             raise ValueError("PyYAML is required for YAML files") from exc
-        raw = yaml.safe_load(text)
+        try:
+            raw = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"{path.name}: invalid YAML: {exc}") from exc
     else:
         try:
             raw = json.loads(text)
@@ -122,6 +132,48 @@ def str_or_none(raw: object) -> str | None:
         return None
     value = str(raw).strip()
     return value or None
+
+
+def strict_int(raw: object, where: str) -> int:
+    """Read one integer field: bool, fractions and foreign digits are errors.
+
+    Accepts an int, an integral float and an ASCII integer string (a sign is
+    allowed); rejects bool, fractional numbers, digit-group underscores and
+    Unicode digits, so untrusted text is never silently reinterpreted. The one
+    shared rule for `pos`, page sizes and any other integer design field.
+
+    Raises:
+        ValueError: `raw` is not a real integer.
+    """
+    if isinstance(raw, bool):
+        raise ValueError(f"{where}: expected an integer, got {raw!r}")
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        if not raw.is_integer():
+            raise ValueError(f"{where}: expected an integer, got {raw!r}")
+        return int(raw)
+    if isinstance(raw, str) and _INT_TEXT.fullmatch(raw.strip()):
+        return int(raw.strip())
+    raise ValueError(f"{where}: expected an integer, got {raw!r}")
+
+
+def norm_pos(raw: object, kind: str) -> tuple[int, int, int, int] | None:
+    """Read a `[x, y, w, h]` position with a message that names the block.
+
+    Integral floats and integer strings are accepted (JSON/YAML authors write
+    both), but a bool coordinate or a fractional number is an error instead of
+    a silent truncation.
+
+    Raises:
+        ValueError: `raw` is not four integer coordinates.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        raise ValueError(f"{kind}: pos must be [x, y, w, h], got {raw!r}")
+    out = [strict_int(item, f"{kind}: pos") for item in raw]
+    return (out[0], out[1], out[2], out[3])
 
 
 def norm_columns(raw: object) -> dict[str, str]:
@@ -269,8 +321,10 @@ __all__ = [
     "load_mapping",
     "norm_columns",
     "norm_measures",
+    "norm_pos",
     "norm_type",
     "pbixray_type",
     "relationship_record",
     "str_or_none",
+    "strict_int",
 ]

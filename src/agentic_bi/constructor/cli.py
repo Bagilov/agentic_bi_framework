@@ -22,6 +22,7 @@ import argparse
 import json
 import logging
 import sys
+import zipfile
 from pathlib import Path
 
 from agentic_bi.cli_support import run_boundary
@@ -228,7 +229,7 @@ def _execute(ctor: Constructor, args: argparse.Namespace, out: Path | None) -> i
         else:
             layout_path = Path(args.layout) if args.layout else None
             report = _compile_only(ctor, target, layout_path)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, zipfile.BadZipFile, KeyError) as exc:
         report = ctor.design_report()
         report.add("build", "assembly", False, f"{type(exc).__name__}: {exc}")
         finish(report, args, out)

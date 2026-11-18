@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import json
+import zipfile
 from pathlib import Path
 
 from agentic_bi import validate_pbix
@@ -244,7 +245,6 @@ class Constructor:
             keep_donor_pages: keep the donor pages and append this design's.
             skip_preflight: do not compare the design with the donor model.
         """
-        self._merged = keep_donor_pages
         self._values = None
         self._donor_registry = None
         if not skip_preflight:
@@ -252,7 +252,9 @@ class Constructor:
                 raise_for_errors(self.preflight(donor))
             except DesignError:
                 self._donor_registry = None
+                self._merged = False
                 raise
+        self._merged = keep_donor_pages
         try:
             return _build_donor(
                 self.compiled, donor, out, keep_donor_pages=keep_donor_pages
@@ -282,8 +284,9 @@ class Constructor:
     ) -> Path:
         """Build the DataModel from rows in the Desktop engine, then the `.pbix`."""
         self._merged = False
+        self._values = None
         self._donor_registry = None
-        result = _build_from_data(
+        result, values = _build_from_data(
             self.design,
             self.compiled,
             data,
@@ -293,6 +296,7 @@ class Constructor:
             desktop=desktop,
             work_dir=work_dir,
         )
+        self._values = values
         return result
 
     # -- tests --------------------------------------------------------------
@@ -359,7 +363,7 @@ class Constructor:
             return report
         try:
             layout = engine_verify.load_layout(path)
-        except (FileNotFoundError, ValueError) as exc:
+        except (FileNotFoundError, ValueError, zipfile.BadZipFile, KeyError) as exc:
             report.add("pbix", "layout readable", False, str(exc))
             return report
         registry = self._donor_registry or self.design.model.registry()
@@ -371,6 +375,20 @@ class Constructor:
                 "layout matches model context",
                 not problems,
                 "; ".join(problems[:5]),
+            )
+        elif check_registry:
+            reason = (
+                "merged build without a donor registry (preflight skipped)"
+                if merged
+                else "empty model registry"
+            )
+            report.add(
+                "registry",
+                "registry check skipped",
+                True,
+                reason,
+                critical=False,
+                level="warning",
             )
         pages = (
             expected_pages

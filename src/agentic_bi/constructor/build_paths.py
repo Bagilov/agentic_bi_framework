@@ -18,13 +18,14 @@ Public API:
     merge_into_donor(donor, layout) -> dict
     build_donor(compiled, donor, out, keep_donor_pages=False) -> Path
     build_engine(compiled, template, datamodel, out) -> Path
-    build_from_data(design, compiled, data, template, out, ...) -> Path
+    build_from_data(design, compiled, data, template, out, ...) -> (Path, rows)
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import zipfile
 from pathlib import Path
 
 from agentic_bi.constructor.design import Design
@@ -69,29 +70,53 @@ def merge_into_donor(donor: Path, layout: dict) -> dict:
     """Append the compiled pages to a donor layout and return the merged dict.
 
     Raises:
-        ValueError: the donor layout has non-list `sections`/`pods`, or its
-            `config` is not a JSON object.
+        ValueError: the donor has no readable `Report/Layout`, its
+            `sections`/`pods` are not lists, or its `config` is not a JSON object.
     """
-    merged = load_layout(donor)
+    try:
+        merged = load_layout(donor)
+    except (zipfile.BadZipFile, KeyError) as exc:
+        raise ValueError(f"donor has no readable Report/Layout: {donor}") from exc
     sections = merged.setdefault("sections", [])
     if not isinstance(sections, list):
         raise ValueError("donor layout sections must be a list")
-    base = max((int(s.get("ordinal", -1)) for s in sections), default=-1) + 1
+    ordinals: list[int] = []
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            raise ValueError(f"donor layout sections[{index}] must be an object")
+        try:
+            ordinals.append(int(section.get("ordinal", -1)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"donor layout sections[{index}].ordinal is not an integer"
+            ) from exc
+    base = max(ordinals, default=-1) + 1
     pods = merged.get("pods") or []
     if not isinstance(pods, list):
         raise ValueError("donor layout pods must be a list")
     used = {p.get("name") for p in pods if isinstance(p, dict)}
+    # Stable section names are content-derived, so appending the same design
+    # twice (or onto a donor that already carries it) must not duplicate names.
+    used_sections = {s.get("name") for s in sections}
     for offset, section in enumerate(layout["sections"]):
         section = dict(section)
         section["ordinal"] = base + offset
-        sections.append(section)
-        name = f"Pod{section['ordinal']}"
+        original = str(section.get("name") or f"Section{section['ordinal']}")
+        name = original
         suffix = 1
-        while name in used:
-            name = f"Pod{section['ordinal']}_{suffix}"
+        while name in used_sections:
+            name = f"{original}_{suffix}"
             suffix += 1
-        used.add(name)
-        pods.append({"name": name, "boundSection": section["name"], "config": "{}"})
+        section["name"] = name
+        used_sections.add(name)
+        sections.append(section)
+        pod_name = f"Pod{section['ordinal']}"
+        suffix = 1
+        while pod_name in used:
+            pod_name = f"Pod{section['ordinal']}_{suffix}"
+            suffix += 1
+        used.add(pod_name)
+        pods.append({"name": pod_name, "boundSection": name, "config": "{}"})
     merged["pods"] = pods
     try:
         config = json.loads(merged.get("config") or "{}")
@@ -111,12 +136,20 @@ def build_donor(
     *,
     keep_donor_pages: bool = False,
 ) -> Path:
-    """Assemble `out` from the donor DataModel and this design's layout."""
+    """Assemble `out` from the donor DataModel and this design's layout.
+
+    Raises:
+        ValueError: the donor is not a readable `.pbix` (no zip container or no
+            `Report/Layout` member).
+    """
     source = Path(donor)
     layout = compiled.layout
     if keep_donor_pages:
         layout = merge_into_donor(source, layout)
-    return rebuild_pbix(source, Path(out), layout=layout)
+    try:
+        return rebuild_pbix(source, Path(out), layout=layout)
+    except KeyError as exc:
+        raise ValueError(f"donor has no readable Report/Layout: {source}") from exc
 
 
 def build_engine(
@@ -161,8 +194,11 @@ def build_from_data(
     table: str | None = None,
     desktop: str | None = None,
     work_dir: str | Path | None = None,
-) -> Path:
+) -> tuple[Path, Rows]:
     """Build the DataModel from rows in the Desktop engine, then assemble `out`.
+
+    Returns the artifact path and the normalized rows, so the caller can verify
+    the artifact against the values it was built from.
 
     Raises:
         ValueError: the model context cannot be built by the engine, or the rows
@@ -179,7 +215,7 @@ def build_from_data(
         work_dir=None if work_dir is None else Path(work_dir),
     )
     datamodel = pipeline.build_datamodel(spec)
-    return build_engine(compiled, template, datamodel, out)
+    return build_engine(compiled, template, datamodel, out), values
 
 
 __all__ = [
