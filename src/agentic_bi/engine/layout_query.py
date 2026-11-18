@@ -17,6 +17,7 @@ Aggregation codes/labels mirror the QOM `AggregationFunction` values.
 Public API:
     _src() -> str
     dax_literal(text) -> str
+    stable_id(key) -> (int, str)
     _col_ref(src, prop) / _agg_ref(src, prop, agg) / _measure_ref(src, name)
     _col_item(src, table, name) / _agg_item(src, table, prop, agg)
     _measure_item(src, table, name)
@@ -25,6 +26,7 @@ Public API:
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 # QOM AggregationFunction codes and their display labels.
@@ -66,6 +68,18 @@ def dax_literal(text: str) -> str:
     (`Sales '23`) terminates the literal and corrupts the whole visual config.
     """
     return "'" + str(text).replace("'", "''") + "'"
+
+
+def stable_id(key: str) -> tuple[int, str]:
+    """A deterministic (numeric id, 20-char name) pair derived from `key`.
+
+    Layout identifiers used to be random UUIDs, so two builds of the same design
+    differed byte-for-byte and a diff between them was meaningless. A SHA-1 of
+    the content keeps them reproducible — the same convention as the stable
+    board/skeleton names.
+    """
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return int(digest, 16) % 100000000, digest[:20]
 
 
 def _col_ref(src: str, prop: str) -> dict:

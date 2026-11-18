@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 
+from agentic_bi.engine.layout_query import stable_id
 from agentic_bi.engine.layout_visual import Visual, _container
 
 logger = logging.getLogger(__name__)
@@ -78,12 +78,13 @@ def build_report_dict(
                 y = margin + (i // cols) * (cell_h + gutter)
                 vw, vh = cell_w, cell_h
             containers.append(_container(v, x, y, vw, vh))
-        page_w = max([canvas_w] + [c["x"] + c["width"] + 20 for c in containers])
-        page_h = max([canvas_h] + [c["y"] + c["height"] + 20 for c in containers])
+        page_w = max([canvas_w] + [c["x"] + c["width"] + margin for c in containers])
+        page_h = max([canvas_h] + [c["y"] + c["height"] + margin for c in containers])
+        section_id, section_name = stable_id(f"section:{ordinal}:{page_name}")
         sections.append(
             {
-                "id": uuid.uuid4().int % 100000000,
-                "name": uuid.uuid4().hex[:20],
+                "id": section_id,
+                "name": section_name,
                 "displayName": page_name,
                 "filters": "[]",
                 "ordinal": ordinal,

@@ -144,3 +144,7 @@ class TestBuildReportDict:
     def test_a_report_id_is_preserved(self) -> None:
         pages = [("P", [Visual("card", table="t", measure="m")])]
         assert build_report_dict(pages, report_id=42)["id"] == 42
+
+    def test_two_builds_of_the_same_pages_are_byte_identical(self) -> None:
+        pages = [("One", [Visual("card", table="t", measure="m", title="Sales")])]
+        assert build_report(pages) == build_report(pages)

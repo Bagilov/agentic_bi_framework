@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from dataclasses import dataclass, field
 
 from agentic_bi.engine.layout_catalog import (
@@ -39,6 +38,7 @@ from agentic_bi.engine.layout_query import (
     _measure_item,
     _src,
     dax_literal,
+    stable_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -241,7 +241,9 @@ def _visual_config(v: Visual) -> dict:
         ]
 
     return {
-        "name": str(uuid.uuid4()),
+        # The real name is a content hash assigned by `_container` once the
+        # position is known, so the same design always yields the same layout.
+        "name": "",
         "layouts": [
             {
                 "id": 0,
@@ -278,6 +280,7 @@ def _container(v: Visual, x: int, y: int, w: int, h: int) -> dict:
             "tabOrder": 0,
         }
         break
+    _, cfg["name"] = stable_id(json.dumps(cfg, sort_keys=True, ensure_ascii=False))
     container = {
         "x": x,
         "y": y,
