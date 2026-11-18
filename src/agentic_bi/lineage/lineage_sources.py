@@ -9,7 +9,11 @@ Known zone outside the perimeter
     connection (for example the portal metadata store) is not part of this
     solution: its schema, objects, connection string and credentials depend on
     the concrete deployment, so they are redacted here instead of being echoed
-    into lineage output (`ORACLE_DETAIL`, `ORACLE_BOUNDARY_NOTE`).
+    into lineage output (`ORACLE_DETAIL`, `ORACLE_BOUNDARY_NOTE`). This covers
+    the native connectors (`Oracle.Database`, ODP.NET) and Oracle behind an
+    ODBC connection string (vendor markers anywhere in it, `DRIVER={Oracle}`
+    included); any ODBC connection string carrying credentials is redacted
+    regardless of the DSN name.
 """
 
 from __future__ import annotations
@@ -99,6 +103,26 @@ class SourceMixin:
         if "Odbc.Query(" in expr:
             m_dsn = re.search(r'Odbc\.Query\("([^"]+)"', expr)
             dsn = m_dsn.group(1) if m_dsn else "?"
+            # Oracle behind an ODBC DSN is the same known zone. The DSN name is
+            # deployment-chosen, so the vendor is detected anywhere in the
+            # connection string (DRIVER={Oracle ...} included), and any
+            # connection string carrying credentials is redacted whatever the
+            # DSN is called — never echoed into lineage output.
+            if re.search(r"oracle|odp\.net", dsn, re.IGNORECASE):
+                return Source(
+                    ORACLE_TYPE,
+                    ORACLE_DETAIL,
+                    status="unresolved",
+                    error=ORACLE_BOUNDARY_NOTE,
+                )
+            if re.search(r"\b(?:uid|user id|pwd|password)\s*=", dsn, re.IGNORECASE):
+                return Source(
+                    "ODBC",
+                    "ODBC connection (credentials redacted)",
+                    status="unresolved",
+                    error="ODBC connection string carries credentials; "
+                    "details redacted",
+                )
             tables_found = re.findall(r"FROM\s+([\w.]+)", expr, re.IGNORECASE)
             joins = re.findall(r"JOIN\s+([\w.]+)", expr, re.IGNORECASE)
             all_tables = list(dict.fromkeys(tables_found + joins))
@@ -164,13 +188,15 @@ class SourceMixin:
             )
 
         # --- Oracle (known external zone, see the module constants) ---
+        # M is case-insensitive, so the markers are matched lowercased.
+        low = expr.lower()
         if any(
-            k in expr
+            k in low
             for k in (
-                "Oracle.Database",
-                "OracleDataAccess",
-                "Oracle.ManagedDataAccess",
-                "Odp.Net",
+                "oracle.database",
+                "oracledataaccess",
+                "oracle.manageddataaccess",
+                "odp.net",
             )
         ):
             return Source(
