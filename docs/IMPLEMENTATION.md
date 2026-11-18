@@ -1197,7 +1197,36 @@ Notes, each measured rather than assumed:
   integer or a blank for a numeric column is a `ValueError` naming the cell.
 - `Constructor.test()` reuses `engine.verify` and `validate_pbix`, and skips the
   layout/binding comparison for a merged donor build whose donor pages need not
-  reference the new context.
+  reference the new context. A skipped registry check (merged build without
+  preflight, or an empty registry) is recorded as a **warning check**, never as
+  silence.
+- The layout is deterministic **byte-for-byte**: section and visual-container
+  names are SHA-1 hashes of their content (`layout_query.stable_id`), not random
+  UUIDs, so two builds of one design diff cleanly. Merging the same design into
+  a donor twice renames the colliding sections (`<name>_1`, ...) and rebinds the
+  pods.
+- A measure whose name equals a column of the same table is a validation
+  **error** (`measure_column_collision`): TOM refuses it and the build script
+  would skip it silently, leaving a blank visual under a passing build. Tabular
+  names are case-insensitive, so `Amount` over `amount` collides too.
+- Rows are typed at the boundary: integer text is gated to ASCII digits and
+  parsed exactly (`Decimal` for the `"1.0"`/`"1e3"` forms — a float round-trip
+  loses precision above 2^53 and rounds sub-resolution fractions), a non-finite
+  `double` is rejected, and every date channel (objects and strings) normalizes
+  to the same ISO-seconds literal via `engine.types.parse_date` (`05.06.2024` →
+  `2024-06-05T00:00:00`), so the guest's invariant-culture parser never
+  re-interprets a RU-format date. A bad value is a `ValueError` naming the cell.
+- A live build keeps its normalized rows: `test()` verifies against them
+  (`meta.spec == "values"`; the value-level read-back runs with `--model-verify`).
+- Malformed YAML is bad input (exit 2), like malformed JSON; a donor zip without
+  `Report/Layout` is a located `ValueError` / failed check, not a `KeyError`
+  traceback.
+- Relationships are many-to-one with fixed cardinality: `fromTable`/`fromColumn`
+  is the many side, `toTable`/`toColumn` the one side.
+- `pos` rejects bool and fractional coordinates (integral floats and integer
+  strings are accepted); a zero/negative page size is an error, not a silent
+  fallback to the default. Both share one strict-integer rule
+  (`model.strict_int`): ASCII digits only, no underscores or Unicode digits.
 
 ## 21. Known zones outside the perimeter
 
@@ -1211,7 +1240,7 @@ deployment, not to this repository.
 | zone | what is opaque | what the code does |
 |---|---|---|
 | Portal metadata database | the database behind the portal catalog: access grants, execution logs, favorites, server objects | the portal is reached only through its public OData/REST API (`reportserver/`); no SQL, schema, table name or connection string is shipped |
-| Oracle sources in lineage | the database behind an `Oracle.Database`/ODP.NET connection, typically the portal metadata store | `lineage_sources` reports the source as an external Oracle database with redacted details (`ORACLE_DETAIL`, `ORACLE_BOUNDARY_NOTE`); no connection string or object name is parsed out of the M code |
+| Oracle sources in lineage | the database behind an `Oracle.Database`/ODP.NET connection (or an Oracle ODBC connection), typically the portal metadata store | `lineage_sources` reports the source as an external Oracle database with redacted details (`ORACLE_DETAIL`, `ORACLE_BOUNDARY_NOTE`); detection is case-insensitive, covers vendor markers anywhere in an ODBC connection string, and redacts any ODBC connection string carrying credentials regardless of the DSN name; no connection string, DSN or object name is parsed out of the M code |
 | Power BI Desktop internals (oracle) | the analysis-services workspace directory, its SQLite metadata database, crash dumps and window titles | `_engine_oracle.py` probes them read-only to decide `MODEL_LOADED`; a missing file or another schema means "not attached", never a crash |
 | Donor `.pbix` VertiPaq model | the binary model that supplies the actual tables/columns/measures | the build reuses the operator's donor (`PBI_RS_TEMPLATE`) instead of recreating the compressed model |
 

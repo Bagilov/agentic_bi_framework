@@ -346,3 +346,141 @@ unknown chart `visual_type` and a non-string page filter; `_query_item` raised a
 bare `KeyError`; a narrow page emitted a negative layout width. Qwen's "quote a
 queryRef with spaces" was refuted (real layouts store it unquoted). Split out
 `spec_validate.py`. Suite after the addendum: 299 passed, 2 skipped.
+
+## Round 12: constructor + engine delta (local review)
+
+Scope: the unreviewed delta `8611e56..HEAD` (2026-11-17) — the new `constructor/`
+subsystem, the engine rich-visual/canvas/mode work, and the guest/lineage/
+reportserver fixes. Taken as a local read-only review in plan mode; every
+finding below was reproduced with a regression test that fails on the pre-fix
+code before the fix landed. The recurring themes of rounds 4–11 (fail-open
+gates, untrusted values at serialization sinks, exit-code contract,
+non-determinism) are exactly what the new subsystem was checked against.
+
+Adopted and fixed:
+
+1. **Measure/column name collision (High)** — a measure named like a column of
+   the same table passed design validation; `_engine_build.ps1` skips such a
+   measure (pinned as intentional), and the offline `test()` could not see it:
+   a blank visual under a passing build. `validate_model.check_name_collisions`
+   now rejects it at the gate (`measure_column_collision`), whether or not a
+   visual uses the measure.
+2. **Exit-code contract (Warning)** — malformed YAML raised `yaml.YAMLError`
+   through `Design.load`/the CLI as a traceback (now wrapped into `ValueError`,
+   exit 2); a donor/artifact zip without `Report/Layout` raised `KeyError`
+   (now a located `ValueError` in `build_paths`, a failed `layout readable`
+   check in `Constructor.test`, and caught by the CLI build phase); a corrupt
+   zip raised `BadZipFile` out of `test()` (now a failed check). The shared
+   `rebuild._extract_layout` contract (documented `KeyError`) is unchanged —
+   the constructor wraps it at its own boundary.
+3. **int64 precision (Warning)** — `rows.coerce_value` parsed integer strings
+   through `float`, silently losing every integer above 2^53
+   (`"9007199254740993"` → `...992`). Integer strings now parse as integers
+   first; the float path remains for `"1.0"`/`"1e3"`.
+4. **RU dates (Warning)** — date strings passed through unnormalized and the
+   guest's `[DateTime]::Parse(..., InvariantCulture)` read `05.06.2024` as May 6.
+   The constructor now reuses `engine.types.is_date`/`to_iso` (which already
+   understand `%d.%m.%Y`): dates normalize to ISO at the boundary, an
+   unparseable date is a located `ValueError` instead of a late guest failure.
+5. **Non-finite doubles (Nit)** — `"inf"`/`"nan"` strings became `Infinity`/`NaN`
+   in the spec JSON (non-strict JSON, undefined `ConvertFrom-Json` behaviour).
+   `coerce_value` now rejects a non-finite double naming the cell.
+6. **Determinism (Warning)** — the constructor claims byte-meaningful diffs, but
+   `engine/layout.py` and `layout_visual._container` named sections/visuals with
+   `uuid.uuid4()`. Names are now SHA-1 content hashes (`layout_query.stable_id`,
+   the round-11 board/skeleton convention); two compilations are byte-identical
+   (pinned). `merge_into_donor` deduplicates section names on collision, so
+   merging one design twice stays valid.
+7. **Dead `_values` state (Warning)** — `Constructor._values` was never set, so a
+   live-data build verified against a model-only spec and `meta.spec` always said
+   `model-only`. `build_paths.build_from_data` now returns the normalized rows
+   and the facade keeps them: `test()` verifies against the values it built from
+   (value-level read-back with `--model-verify`).
+8. **Silent registry skip (Warning)** — a merged build without preflight skipped
+   the registry check with no trace (the round-7 theme). The skip is now a
+   warning check in the report.
+9. **`_merged` after failed preflight (Nit)** — `build_donor` left
+   `_merged=True` when preflight raised, weakening a later `test()` of a stale
+   artifact. The flag is now set only after preflight passes.
+10. **Desktop dual-form parity (Warning)** — the `PBI_RS_DESKTOP` directory form
+    was resolved for the oracle and the guest chain but not for
+    `engine/host.default_desktop`, so `EnginePipeline`/`test-build` could
+    `Popen` a directory (WinError 5). The host now uses `guest_types.desktop_exe`
+    too.
+11. **Empty `.abf` (Nit)** — `run_engine_build` accepted a 0-byte output (a
+    script killed mid-write) as success; it now requires a non-empty file.
+12. **Oracle boundary completeness (Warning, user-approved)** — Oracle behind
+    `Odbc.Query` hit the ODBC branch first and echoed the DSN plus FROM/JOIN
+    tables; the Oracle markers were case-sensitive while M is not. The ODBC
+    branch now redacts an Oracle DSN like the native connector, and marker
+    matching is case-insensitive. Non-Oracle ODBC keeps its details (pinned).
+13. **Donor layout robustness (Nit)** — `merge_into_donor` rejected non-dict
+    `sections` elements and a non-integer `ordinal` with located errors instead
+    of `AttributeError`/generic `ValueError`.
+14. **Boundary strictness (Nit)** — `pos` rejects bool/fractional coordinates
+    (shared `model.norm_pos` for design and blocks); page `width`/`height` reject
+    zero/negative/bool/fractional values instead of silently defaulting;
+    `build_report_dict` uses its `margin` parameter for the trailing page edge
+    instead of a hardcoded 20. Relationship direction (from = many side) is
+    documented on `ModelContext`.
+
+Checked and correct (no change): the option guards and JSON-aware `fail`,
+UTF-16LE-without-BOM layout encoding, `dax_literal` escaping, the fail-closed
+refresh and stale-`.abf` fixes, `database_name` sanitization mirrored in PS1,
+the Oracle redaction core, the guest `desktop_bin`/`desktop_exe` dual form,
+`extra_values` fail-closed kinds, and the schema/catalog self-description.
+
+Deferred (recorded, out of this delta's scope):
+
+- The same unwrapped `yaml.safe_load` pattern exists in `spec_boundary.py` and
+  `brand/config.py` (pre-delta code); a cross-cutting wrap is a separate change.
+- `_engine_build.ps1` DAX-mode `null` literal and the opt-in `RequireProcessed`
+  rest on the author's guest measurements; the offline tests pin the script
+  shape only. Re-verify on the VM per `DEVELOPMENT_MACOS.md` (NULL in
+  int64/double/date columns; an unprocessed model exports blank visuals —
+  detectable with `--model-verify` now that values reach the report).
+- A direct hand-authored spec to `agentic-bi-engine` still interpolates values
+  into DAX/M without a numeric type guard (the constructor path coerces first);
+  operator-controlled, noted for a future boundary pass.
+
+## Round 12 follow-up: local review of the fixes
+
+An independent local review of the round-12 working tree (five tracks: security,
+business logic, duplication, dead code, performance) found seven issues in the
+new code; every one was reproduced at runtime before the fix and pins a
+regression test now.
+
+1. **Case-only measure/column collision (Warning, fixed)** — Tabular names are
+   case-insensitive, so measure `Amount` over column `amount` passed the new
+   F1 gate and was still skipped by the build script. `check_name_collisions`
+   now compares lowercased names (original spelling in the message).
+2. **int64 float-fallback rounding (Warning, fixed)** — the F3 fallback still
+   went through `float`: `"0.99999999999999999"` rounded to `1` and
+   `"9007199254740993.0"` lost precision. The fallback now parses with
+   `decimal.Decimal`, requires an exact integral value and range-checks before
+   `int()` (no huge-exponent expansion).
+3. **Oracle-ODBC redaction bypass (Warning, fixed)** — the F14 guard matched
+   only the DSN *name*; a deployment-named DSN (`DSN=PORTAL;Uid=...;Pwd=...`)
+   echoed the full connection string with credentials and the query's tables.
+   The ODBC branch now detects vendor markers anywhere in the connection string
+   (`DRIVER={Oracle ...}` included) and redacts **any** connection string
+   carrying credential keys (`Uid`/`User Id`/`Pwd`/`Password`), whatever the
+   DSN is called; non-Oracle credential-free ODBC keeps its details (pinned).
+4. **Two ISO normalizers (Warning, fixed)** — the object branch kept
+   `datetime.isoformat()` (microseconds, tz offset) while the string branch used
+   `to_iso` (seconds): the same date column normalized differently by input
+   channel, risking a false value-readback mismatch. Both channels now go
+   through one `engine.types.parse_date` (ISO seconds, no sub-second/offset).
+5. **Python-only integer syntax (Suggestion, fixed)** — `int()` accepted
+   digit-group underscores (`"1_000"` → 1000) and Unicode digits (`"١٢٣"` →
+   123). Integer text is now gated by an ASCII regex before conversion.
+6. **Double date scan (Suggestion, fixed)** — `is_date` + `to_iso` parsed every
+   date cell twice; `parse_date` is a single pass over the format list.
+7. **Duplicated strict-int rule (Suggestion, fixed)** — `norm_pos` and
+   `_page_dim` carried separate copies of the bool/fractional rejection; one
+   shared `model.strict_int` now serves `pos` and page sizes (and the ASCII
+   gate of item 5). `span` still truncates via `int()` — pre-existing, left as
+   a separate decision.
+
+Dead-code track: no findings. Performance note on `engine/types.is_date`
+per-cell scanning in the *engine* path is pre-existing and out of this scope.
