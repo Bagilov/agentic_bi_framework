@@ -34,6 +34,7 @@ import time
 from pathlib import Path
 
 import agentic_bi.paths as paths
+from agentic_bi.guest_types import desktop_exe
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +56,15 @@ ORACLE_PY = _PKG_DIR / "_engine_oracle.py"
 
 
 def default_desktop() -> str:
-    """Return the Power BI Desktop executable path (env > probe > RS default)."""
+    """Return the Power BI Desktop executable path (env > probe > RS default).
+
+    The env value may pin the executable or the bin directory (the same dual
+    form the guest chain and the oracle accept), so it is resolved to the
+    executable here too: `Popen` on a directory fails with WinError 5.
+    """
     env = os.environ.get("PBI_RS_DESKTOP")
     if env:
-        return env
+        return desktop_exe(env)
     for sub in _DESKTOP_SUBPATHS:
         exe = Path(r"C:\Program Files") / sub
         if exe.exists():
@@ -161,7 +167,8 @@ def run_engine_build(spec_path: Path, abf: Path, port: int | None = None) -> str
         # and produced a model with no tables (found on the guest).
         abf.unlink(missing_ok=True)
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if abf.exists():
+        # A 0-byte file is a script killed mid-write, not a model.
+        if abf.exists() and abf.stat().st_size > 0:
             return (proc.stdout or "")[-400:]
         out_tail = (proc.stdout or "")[-400:]
         err_tail = (proc.stderr or "")[-400:]

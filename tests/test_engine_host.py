@@ -21,6 +21,15 @@ def test_desktop_env_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     assert engine_host.default_desktop() == r"D:\pbi\PBIDesktop.exe"
 
 
+def test_desktop_env_directory_becomes_the_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PBI_RS_DESKTOP accepts the bin directory too (guest_types.desktop_exe);
+    # Popen on a directory fails with WinError 5 instead of naming the problem.
+    monkeypatch.setenv("PBI_RS_DESKTOP", r"D:\pbi\bin")
+    assert engine_host.default_desktop() == r"D:\pbi\bin\PBIDesktop.exe"
+
+
 def test_desktop_falls_back_to_rs_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PBI_RS_DESKTOP", raising=False)
     monkeypatch.setattr(engine_host, "_DESKTOP_SUBPATHS", ())
@@ -161,6 +170,29 @@ def test_run_engine_build_retries_then_raises(
 
     def fake_run(cmd, **kwargs):
         attempts.append(1)
+        return _Proc()
+
+    monkeypatch.setattr(engine_host.subprocess, "run", fake_run)
+    monkeypatch.setattr(engine_host.time, "sleep", lambda _s: None)
+    with pytest.raises(RuntimeError, match="engine build failed"):
+        engine_host.run_engine_build(tmp_path / "spec.json", abf)
+    assert len(attempts) == 2
+
+
+def test_run_engine_build_rejects_an_empty_abf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A script killed mid-write leaves a 0-byte file; it is not a model.
+    abf = tmp_path / "out.abf"
+    attempts: list[int] = []
+
+    class _Proc:
+        stdout = "died early"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        attempts.append(1)
+        abf.write_bytes(b"")
         return _Proc()
 
     monkeypatch.setattr(engine_host.subprocess, "run", fake_run)
